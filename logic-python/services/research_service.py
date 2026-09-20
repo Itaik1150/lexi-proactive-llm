@@ -556,6 +556,30 @@ class ResearchService:
                         "experimentId": experiment_id_str,
                     }
 
+                # ── Gatekeeper: final isProactive check before FCM dispatch ──
+                # Re-reads the user doc from DB to catch any status change that
+                # occurred during heuristic/LLM processing (e.g. participant
+                # opted out after the cycle started).
+                try:
+                    if mongodb_client.connect():
+                        live_user = mongodb_client.db[
+                            mongodb_client.users_collection
+                        ].find_one(
+                            {"_id": ObjectId(user_id)},
+                            {"isProactive": 1},
+                        )
+                        mongodb_client.disconnect()
+                        if not live_user or not live_user.get("isProactive", False):
+                            print(f"🚫 [{username}] isProactive=False at dispatch — dropping FCM")
+                            results["fcm_failed"] += 1
+                            continue
+                except Exception as _gk_err:
+                    print(f"⚠️  [{username}] Gatekeeper DB check failed ({_gk_err}) — proceeding")
+                    try:
+                        mongodb_client.disconnect()
+                    except Exception:
+                        pass
+
                 notification_result = self.fcm_service.send_to_user(
                     user=UserContext(
                         user_id=user_id,
@@ -873,19 +897,24 @@ class ResearchService:
             "emotional_state_signal":  emotional_signal,
         }
 
+        daily_limit = count          # alias used verbatim in the prompt below
         system_prompt = (
             "You are a smart notification scheduler for a wellbeing chatbot app.\n"
-            "Choose the best times to send push notifications to a specific user today.\n\n"
-            "Rules:\n"
-            f"- Return ONLY a valid JSON array of exactly {count} HH:MM strings, "
-            f"e.g. [\"17:30\", \"19:15\"].\n"
-            f"- All times must be strictly between {window_start} and {window_end} "
-            f"(current time is {now_hhmm} — do NOT pick any time at or before now).\n"
-            "- Prefer hours where conversation_hours_14d shows the user was active.\n"
-            "- Avoid exact matches with notification_hours_7d (vary the timing).\n"
-            "- If upcoming_events_iso contains an event today, schedule a notification ~30 min before it.\n"
-            "- Space notifications at least 30 minutes apart.\n"
-            "- Return ONLY the JSON array — no explanation, no extra text."
+            "Your ONLY output must be a JSON array of notification times for ONE specific user.\n\n"
+            "=== HARD CONSTRAINTS (non-negotiable) ===\n"
+            f"1. Return EXACTLY {daily_limit} HH:MM time string(s) — no more, no fewer.\n"
+            f"2. Every time must fall strictly WITHIN the allowed window: "
+            f"{window_start} – {window_end}.\n"
+            f"3. Current time is {now_hhmm}. Do NOT include any time at or before now.\n"
+            f"4. Space each notification at least 30 minutes apart.\n\n"
+            "=== OPTIMISATION HINTS (use to pick the best times within the constraints) ===\n"
+            "- Prefer hours that appear most often in conversation_hours_14d "
+            "(these are hours the user was historically active).\n"
+            "- Avoid hours already present in notification_hours_7d to vary delivery timing.\n"
+            "- If upcoming_events_iso lists an event today, target a time ~30 min before it.\n\n"
+            "=== OUTPUT FORMAT ===\n"
+            f"Return ONLY a valid JSON array, e.g. [\"17:30\", \"19:15\"] for daily_limit=2.\n"
+            "No explanation. No prose. No extra keys. Just the array."
         )
 
         try:
@@ -902,6 +931,10 @@ class ResearchService:
             if not match:
                 raise ValueError(f"No JSON array in LLM response: {raw!r}")
             times = _json.loads(match.group())
+
+            # Safety-net: silently truncate if the LLM hallucinated extra entries.
+            # The primary constraint is the prompt above; this is purely defensive.
+            times = times[:daily_limit]
 
             # Validate: each time must be a valid HH:MM within the effective window
             sh_v, sm_v = map(int, window_start.split(":"))

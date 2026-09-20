@@ -7,10 +7,9 @@ At startup, reads each enabled experiment's notification schedule
 APScheduler job per configured fire time / random window, gated to that
 experiment's own allowed days.
 
-An every-5-minute reload job re-reads the DB and updates all registered fire-time jobs
-so that changes made in the Admin panel take effect quickly — no Render restart required.
-When mode is ai_agent and today's per-user jobs are missing, a one-off kickoff runs the
-daily planner asynchronously within seconds of the reload.
+An hourly reload job re-reads the DB and updates all registered fire-time jobs
+so that changes made in the Admin panel take effect within 60 minutes — no
+Render restart required.
 
 Falls back to a hardcoded default schedule if MongoDB is unreachable or no
 experiment has proactive settings configured yet, so the service never fails
@@ -25,7 +24,7 @@ To stop: Ctrl+C
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -168,7 +167,7 @@ def reload_schedules(scheduler: BlockingScheduler):
     """
     Re-read experiment schedules from MongoDB and update APScheduler jobs in-place.
     Removes all experiment-specific proactive_ jobs, then re-registers from DB.
-    Called automatically every 5 minutes so Admin-panel changes take effect without a restart.
+    Called automatically every hour so Admin-panel changes take effect without a restart.
     """
     now_str = datetime.now().strftime("%H:%M:%S")
     print(f"\n🔄 [{now_str}] Reloading schedules from MongoDB…")
@@ -341,33 +340,6 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
             print(f"   🤖 AI planner job [{job_id}]: daily 00:01 ({dow}), "
                   f"window={window.get('start')}–{window.get('end')}, count={count}")
 
-            # Mid-day catch-up: if the researcher enabled ai_agent after 00:01 and
-            # today's per-user jobs are not yet registered, kick off the planner
-            # asynchronously in 5s so the LLM work never blocks this reload pass.
-            tz = ZoneInfo("Asia/Jerusalem")
-            now_tz = datetime.now(tz)
-            today_sun0 = (now_tz.weekday() + 1) % 7
-            allowed = sched.get("allowed_days") or list(range(7))
-            prefix = f"ai_timed_{exp_id}_"
-            has_today_jobs = any(j.id.startswith(prefix) for j in scheduler.get_jobs())
-            kickoff_id = f"proactive_{exp_id}_ai_kickoff"
-            if (
-                today_sun0 in allowed
-                and not has_today_jobs
-                and scheduler.get_job(kickoff_id) is None
-            ):
-                scheduler.add_job(
-                    lambda s=scheduler, eid=exp_id, w=window, c=count:
-                        ai_daily_planner_job(s, eid, w, c),
-                    "date",
-                    run_date=now_tz + timedelta(seconds=5),
-                    id=kickoff_id,
-                    replace_existing=True,
-                )
-                job_count += 1
-                print(f"   ⚡ Mid-day AI kickoff in 5s for experiment {exp_id[:8]} "
-                      f"(no ai_timed_ jobs found today)")
-
         elif sched["mode"] == "random" and sched["random_windows"]:
             for w_idx, window in enumerate(sched["random_windows"]):
                 try:
@@ -436,11 +408,11 @@ if __name__ == "__main__":
             scheduler.add_job(proactive_job, "cron", hour=h, minute=m, id=f"proactive_fallback_{time_str}")
         registered = len(FALLBACK_FIRE_TIMES)
 
-    # Reload schedules from MongoDB every 5 minutes so Admin-panel changes
-    # (e.g. switching to ai_agent mid-day) take effect quickly without a restart.
+    # Reload schedules from MongoDB every hour so Admin-panel changes take effect
+    # without needing a Render restart.
     scheduler.add_job(
         lambda: reload_schedules(scheduler),
-        "interval", minutes=5,
+        "cron", minute=0,
         id="reload_schedules", replace_existing=True,
     )
 
@@ -454,7 +426,7 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print(f"   Proactive jobs registered : {registered}")
-    print(f"   Schedule reload           : every 5 minutes")
+    print(f"   Schedule reload           : every hour (top of the hour)")
     print(f"   Heartbeat                 : every 30 min")
     print(f"   Per-user day-of-week + heuristic weights re-verified live every cycle")
     print("   Press Ctrl+C to stop.")
