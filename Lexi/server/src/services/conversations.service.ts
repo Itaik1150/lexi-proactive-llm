@@ -245,6 +245,10 @@ class ConversationsService {
 
     private getProactiveContext = async (userId: string, conversationId: string) => {
         try {
+            console.log('[getProactiveContext] === START ===');
+            console.log('[getProactiveContext] Incoming conversationId:', conversationId);
+            console.log('[getProactiveContext] userId:', userId);
+
             // Guard: Query DB directly for the first message to check if it's a proactive opener.
             // Messages are stored as separate documents with conversationId field.
             const firstMessage = await ConversationsModel.findOne(
@@ -252,23 +256,46 @@ class ConversationsService {
                 { isProactiveOpener: 1 },
             ).lean();
 
-            if (!firstMessage?.isProactiveOpener) return null;
+            console.log('[getProactiveContext] First message flag:', firstMessage?.isProactiveOpener);
+
+            if (!firstMessage?.isProactiveOpener) {
+                console.log('[getProactiveContext] ❌ Returned NULL: isProactiveOpener is falsy');
+                return null;
+            }
 
             const user = await usersService.getUserById(userId);
             const proactiveMem = user.proactiveMemory;
 
             // Must have a linked memory to fetch context from
             const memoryId = proactiveMem?.linked_memory_id;
-            if (!memoryId) return null;
+            console.log('[getProactiveContext] Linked Memory ID:', memoryId || 'NULL');
+
+            if (!memoryId) {
+                console.log('[getProactiveContext] ❌ Returned NULL: no linked_memory_id');
+                return null;
+            }
 
             // Locate the specific memory object that triggered this proactive chat.
             const memory = proactiveMem.emotional_memories?.find((m) => m.memory_id === memoryId);
-            if (!memory) return null;
+            
+            if (!memory) {
+                console.log('[getProactiveContext] ❌ Returned NULL: memory not found in emotional_memories');
+                console.log('[getProactiveContext] Available memory IDs:', 
+                    proactiveMem.emotional_memories?.map(m => m.memory_id) || []);
+                return null;
+            }
 
             const memoryContent = memory.content;
+            console.log('[getProactiveContext] Memory found:', memoryContent?.substring(0, 100) + '...');
+            
             // memory.conversationId is the *original* past conversation this memory was extracted from.
             const originConvId = memory.conversationId;
-            if (!originConvId) return null;
+            console.log('[getProactiveContext] Origin conversation ID:', originConvId || 'NULL');
+
+            if (!originConvId) {
+                console.log('[getProactiveContext] ❌ Returned NULL: memory has no conversationId');
+                return null;
+            }
 
             // Fetch the last 7 messages (both roles) from the original past conversation.
             const rawMessages = await ConversationsModel.find(
@@ -279,7 +306,12 @@ class ConversationsService {
                 .limit(7)
                 .lean();
 
-            if (!rawMessages || rawMessages.length === 0) return null;
+            console.log('[getProactiveContext] Historical messages fetched:', rawMessages?.length || 0);
+
+            if (!rawMessages || rawMessages.length === 0) {
+                console.log('[getProactiveContext] ❌ Returned NULL: no messages in origin conversation');
+                return null;
+            }
 
             // Re-sort ascending so the transcript reads chronologically.
             const transcript = rawMessages
@@ -287,9 +319,11 @@ class ConversationsService {
                 .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
                 .join('\n');
 
+            console.log('[getProactiveContext] Transcript length:', transcript.length, 'characters');
+            console.log('[getProactiveContext] ✅ SUCCESS: Returning formatted context');
             return { memory: memoryContent, transcript };
         } catch (error) {
-            console.error('[getProactiveContext] Error:', error);
+            console.error('[getProactiveContext] ❌ Exception thrown:', error);
             return null;
         }
     };
