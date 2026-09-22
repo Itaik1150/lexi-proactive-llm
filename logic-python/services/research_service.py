@@ -244,8 +244,13 @@ class ResearchService:
         """
         Pre-creates a conversation on the Lexi server so we can send its ID
         in the FCM data payload for deep-linking.
+        
+        IMPORTANT: Call inject_prompt() BEFORE calling this method, so the
+        Node.js server reads the injected firstChatSentence and creates the
+        conversation with the proactive message as messageNumber: 1 and
+        isProactiveOpener: true.
+        
         Returns the conversationId string, or None on any failure.
-        Must be called AFTER inject_prompt so firstChatSentence is already set.
         """
         try:
             resp = http_requests.post(
@@ -528,30 +533,44 @@ class ResearchService:
             try:
                 from core.models import UserContext
 
-                # ── CRITICAL: Create conversation FIRST, THEN inject with the new ID ──
-                # The linked_conversation_id must point to the NEW proactive conversation
-                # the user will open, not the old conversation from memory extraction.
-                experiment_id_str = str(user.get("experimentId", ""))
-                num_convs = int(user.get("numberOfConversations") or 0)
-                conversation_id = self._create_conversation(user_id, experiment_id_str, num_convs)
-                if conversation_id:
-                    print(f"📝 Pre-created conversation {conversation_id} for {username}")
-                else:
-                    print(f"⚠️  Could not pre-create conversation for {username} — FCM will open home screen")
-
-                # Now inject the prompt with the NEWLY created conversation ID
+                # ── CRITICAL ORDER: Inject FIRST, then create conversation ──
+                # The conversation creation reads user.agent.firstChatSentence,
+                # so we MUST inject the proactive message BEFORE creating the conversation.
+                
+                print(f"💉 [{username}] Injecting proactive message: {message['generated_message'][:50]}...")
                 injection_result = self.inject_prompt(
                     user_id,
                     message["generated_message"],
                     linked_memory_id=heuristic.linked_memory_id if heuristic else None,
-                    linked_conversation_id=conversation_id,  # ← FIX: use the NEW conversation ID
+                    linked_conversation_id=None,  # Will set this after conversation is created
                 )
-                if injection_result:
-                    results["injected"] += 1
-                    print(f"💬 Message injected for {username} (linked to conversation {conversation_id})")
-                else:
+                if not injection_result:
                     results["injection_failed"] += 1
-                    print(f"⚠️  inject_prompt failed for {username} — will still send FCM")
+                    print(f"⚠️  inject_prompt failed for {username} — skipping")
+                    continue
+                
+                results["injected"] += 1
+                
+                # NOW create the conversation (it will use the injected firstChatSentence)
+                experiment_id_str = str(user.get("experimentId", ""))
+                num_convs = int(user.get("numberOfConversations") or 0)
+                conversation_id = self._create_conversation(user_id, experiment_id_str, num_convs)
+                
+                if not conversation_id:
+                    print(f"⚠️  Could not pre-create conversation for {username} — skipping")
+                    results["fcm_failed"] += 1
+                    continue
+                
+                print(f"📝 [{username}] Created NEW conversation {conversation_id} with proactive opener as messageNumber: 1")
+                
+                # Update the user doc to link this conversation ID for context injection
+                if mongodb_client.connect():
+                    mongodb_client.db[mongodb_client.users_collection].update_one(
+                        {"_id": ObjectId(user_id)},
+                        {"$set": {"proactiveMemory.linked_conversation_id": conversation_id}},
+                    )
+                    mongodb_client.disconnect()
+                    print(f"🔗 [{username}] Linked conversation {conversation_id} to proactiveMemory")
 
                 fcm_extra = {}
                 if conversation_id and experiment_id_str:
