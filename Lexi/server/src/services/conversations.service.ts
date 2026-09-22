@@ -246,14 +246,11 @@ class ConversationsService {
     private getProactiveContext = async (userId: string, conversationId: string) => {
         try {
             // Guard: Query DB directly for the first message to check if it's a proactive opener.
-            // The mobile client strips custom fields, so we can't trust the payload.
+            // Messages are stored as separate documents with conversationId field.
             const firstMessage = await ConversationsModel.findOne(
-                { conversationId },
-                { isProactiveOpener: 1, _id: 0 },
-            )
-                .sort({ messageNumber: 1 })
-                .limit(1)
-                .lean();
+                { conversationId, messageNumber: 1 },
+                { isProactiveOpener: 1 },
+            ).lean();
 
             if (!firstMessage?.isProactiveOpener) return null;
 
