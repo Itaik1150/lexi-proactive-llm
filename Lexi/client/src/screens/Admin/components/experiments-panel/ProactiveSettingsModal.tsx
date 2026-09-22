@@ -601,14 +601,8 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                 ? 'The system fires a cycle at each exact time above, on the allowed days only.'
                                 : schedule.mode === 'random'
                                 ? 'The system fires the specified number of notifications at random minutes within this window, on the allowed days only.'
-                                : 'Each day at 00:01 the AI queries each user\'s personal activity history and asks the LLM to pick the optimal notification times within the allowed window. Each user gets individually personalised scheduling.'}
+                                : 'Each day at 00:01 the AI queries each user\'s personal activity history and asks the LLM to pick the optimal notification times within the allowed window. Each user gets individually personalised scheduling. Note: Schedule changes made here take effect on the next daily run.'}
                         </Typography>
-                        {schedule.mode === 'ai_agent' && (
-                            <Alert severity="info" sx={{ mt: 1.5, py: 0.5 }}>
-                                <strong>Note:</strong> Changes to these settings will not apply immediately.
-                                They will take effect on the <strong>next daily scheduling run (at 00:01)</strong>.
-                            </Alert>
-                        )}
                         {/* Task 6.4: timezone display */}
                         <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
                             🕐 Timezone: <strong>Asia/Jerusalem</strong> (Israel Standard Time / Israel Daylight Time).
