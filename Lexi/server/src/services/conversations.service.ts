@@ -40,6 +40,7 @@ class ConversationsService {
             conversation,
             message,
             metadataConversation.userId?.toString(),
+            conversationId,
         );
         const chatRequest = this.getChatRequest(metadataConversation.agent, messages);
         await this.createMessageDoc(message, conversationId, conversation.length + 1);
@@ -206,16 +207,24 @@ class ConversationsService {
         conversation: Message[],
         message: Message,
         userId?: string,
+        conversationId?: string,
     ) => {
         let systemPrompt = { role: 'system', content: agent.systemStarterPrompt };
 
-        // Task 6.9: If this is a proactive-triggered chat, inject source context
-        // Check if: (1) we have a userId, (2) this is the first user message (conversation has only the opener)
-        // (3) the opener is marked as proactive
-        if (userId && conversation.length === 1 && conversation[0].isProactiveOpener) {
-            const context = await this.getProactiveContext(userId);
+        // Inject proactive context on every turn of a proactive conversation (fixes "goldfish syndrome").
+        // getProactiveContext returns null if this conversation is not linked to a proactive memory.
+        if (userId && conversationId) {
+            const context = await this.getProactiveContext(userId, conversationId);
             if (context) {
-                systemPrompt.content += `\n\n[Context: This conversation was initiated based on something the user shared earlier: "${context.memory}". Here's relevant context from a previous conversation:\n${context.snippet}\n\nReference this naturally if the user engages with the topic.]`;
+                systemPrompt.content +=
+                    `\n\n--- Proactive Context (for your internal reference only) ---\n` +
+                    `You reached out to the user in this conversation because something from a past session stayed with you. The specific memory that prompted you to reconnect:\n\n` +
+                    `"${context.memory}"\n\n` +
+                    `Here is an excerpt from the original conversation where that moment occurred:\n${context.transcript}\n` +
+                    `---\n\n` +
+                    `Carry this awareness naturally into your responses. Do not announce that you reviewed a transcript or that you "looked something up." ` +
+                    `Simply let this background inform your understanding of the user — the way any attentive, caring person would when following up on something meaningful from a prior conversation.\n` +
+                    `--- End of Proactive Context ---`;
             }
         }
 
@@ -234,41 +243,45 @@ class ConversationsService {
         return messages;
     };
 
-    private getProactiveContext = async (userId: string) => {
+    private getProactiveContext = async (userId: string, conversationId: string) => {
         try {
             const user = await usersService.getUserById(userId);
-            const memoryId = user.proactiveMemory?.linked_memory_id;
-            const sourceConvId = user.proactiveMemory?.linked_conversation_id;
+            const proactiveMem = user.proactiveMemory;
 
-            if (!sourceConvId) return null;
+            // Guard: only inject context when this is the active proactive conversation.
+            if (!proactiveMem?.linked_conversation_id) return null;
+            if (conversationId !== proactiveMem.linked_conversation_id) return null;
 
-            // Fetch the original conversation snippet (last 5 user messages)
-            const sourceMessages = await ConversationsModel.find(
-                { conversationId: sourceConvId, role: 'user' },
-                { content: 1, _id: 0 },
+            // Locate the specific memory object that triggered this proactive chat.
+            const memoryId = proactiveMem.linked_memory_id;
+            const memory = proactiveMem.emotional_memories?.find((m) => m.memory_id === memoryId);
+
+            if (!memory) return null;
+
+            const memoryContent = memory.content;
+            // memory.conversationId is the *original* past conversation this memory was extracted from.
+            const originConvId = memory.conversationId;
+
+            if (!originConvId) return null;
+
+            // Fetch the last 7 messages (both roles) from the original past conversation.
+            const rawMessages = await ConversationsModel.find(
+                { conversationId: originConvId, role: { $in: ['user', 'assistant'] } },
+                { content: 1, role: 1, messageNumber: 1, _id: 0 },
             )
                 .sort({ messageNumber: -1 })
-                .limit(5)
+                .limit(7)
                 .lean();
 
-            if (!sourceMessages || sourceMessages.length === 0) return null;
+            if (!rawMessages || rawMessages.length === 0) return null;
 
-            const snippet = sourceMessages
+            // Re-sort ascending so the transcript reads chronologically.
+            const transcript = rawMessages
                 .reverse()
-                .map((m) => m.content)
+                .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
                 .join('\n');
 
-            // Find the specific memory content (for affective heuristic)
-            let memoryContent = '';
-            if (memoryId && user.proactiveMemory?.emotional_memories) {
-                const memory = user.proactiveMemory.emotional_memories.find((m) => m.memory_id === memoryId);
-                memoryContent = memory?.content || '';
-            }
-
-            return {
-                memory: memoryContent || 'a topic they shared',
-                snippet: snippet.substring(0, 500), // Limit context size
-            };
+            return { memory: memoryContent, transcript };
         } catch (error) {
             console.error('[getProactiveContext] Error:', error);
             return null;
