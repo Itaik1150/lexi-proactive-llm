@@ -40,6 +40,7 @@ class ConversationsService {
             conversation,
             message,
             metadataConversation.userId?.toString(),
+            conversationId,
         );
         const chatRequest = this.getChatRequest(metadataConversation.agent, messages);
         await this.createMessageDoc(message, conversationId, conversation.length + 1);
@@ -206,13 +207,14 @@ class ConversationsService {
         conversation: Message[],
         message: Message,
         userId?: string,
+        conversationId?: string,
     ) => {
         let systemPrompt = { role: 'system', content: agent.systemStarterPrompt };
 
         // Inject proactive context on every turn of a proactive conversation (fixes "goldfish syndrome").
         // getProactiveContext returns null if this conversation is not flagged as proactive.
-        if (userId) {
-            const context = await this.getProactiveContext(userId, conversation);
+        if (userId && conversationId) {
+            const context = await this.getProactiveContext(userId, conversationId);
             if (context) {
                 systemPrompt.content +=
                     `\n\n--- Proactive Context (for your internal reference only) ---\n` +
@@ -241,49 +243,35 @@ class ConversationsService {
         return messages;
     };
 
-    private getProactiveContext = async (userId: string, conversation: Message[]) => {
+    private getProactiveContext = async (userId: string, conversationId: string) => {
         try {
-            console.log('[getProactiveContext] conversation length:', conversation?.length ?? 0);
-            console.log('[getProactiveContext] isProactiveOpener:', conversation?.[0]?.isProactiveOpener);
+            // Guard: Query DB directly for the first message to check if it's a proactive opener.
+            // The mobile client strips custom fields, so we can't trust the payload.
+            const firstMessage = await ConversationsModel.findOne(
+                { conversationId },
+                { isProactiveOpener: 1, _id: 0 },
+            )
+                .sort({ messageNumber: 1 })
+                .limit(1)
+                .lean();
 
-            // Guard: only inject context if this conversation starts with a proactive opener.
-            // The mobile app may create a new conversation when opening the notification,
-            // so we rely on the isProactiveOpener flag instead of ID matching.
-            if (!conversation || conversation.length === 0) {
-                console.log('[getProactiveContext] returned null: conversation empty or missing');
-                return null;
-            }
-            if (!conversation[0].isProactiveOpener) {
-                console.log('[getProactiveContext] returned null: first message isProactiveOpener is falsy');
-                return null;
-            }
+            if (!firstMessage?.isProactiveOpener) return null;
 
             const user = await usersService.getUserById(userId);
             const proactiveMem = user.proactiveMemory;
 
             // Must have a linked memory to fetch context from
             const memoryId = proactiveMem?.linked_memory_id;
-            console.log('[getProactiveContext] linked_memory_id exists:', !!memoryId);
-
-            if (!memoryId) {
-                console.log('[getProactiveContext] returned null: no linked_memory_id');
-                return null;
-            }
+            if (!memoryId) return null;
 
             // Locate the specific memory object that triggered this proactive chat.
             const memory = proactiveMem.emotional_memories?.find((m) => m.memory_id === memoryId);
-            if (!memory) {
-                console.log('[getProactiveContext] returned null: memory not found in emotional_memories for id', memoryId);
-                return null;
-            }
+            if (!memory) return null;
 
             const memoryContent = memory.content;
             // memory.conversationId is the *original* past conversation this memory was extracted from.
             const originConvId = memory.conversationId;
-            if (!originConvId) {
-                console.log('[getProactiveContext] returned null: memory has no conversationId');
-                return null;
-            }
+            if (!originConvId) return null;
 
             // Fetch the last 7 messages (both roles) from the original past conversation.
             const rawMessages = await ConversationsModel.find(
@@ -294,10 +282,7 @@ class ConversationsService {
                 .limit(7)
                 .lean();
 
-            if (!rawMessages || rawMessages.length === 0) {
-                console.log('[getProactiveContext] returned null: no messages found for originConvId', originConvId);
-                return null;
-            }
+            if (!rawMessages || rawMessages.length === 0) return null;
 
             // Re-sort ascending so the transcript reads chronologically.
             const transcript = rawMessages
@@ -305,11 +290,9 @@ class ConversationsService {
                 .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
                 .join('\n');
 
-            console.log('[getProactiveContext] successfully returned formatted context');
             return { memory: memoryContent, transcript };
         } catch (error) {
             console.error('[getProactiveContext] Error:', error);
-            console.log('[getProactiveContext] returned null: exception thrown');
             return null;
         }
     };
