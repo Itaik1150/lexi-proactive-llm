@@ -528,19 +528,9 @@ class ResearchService:
             try:
                 from core.models import UserContext
 
-                injection_result = self.inject_prompt(
-                    user_id,
-                    message["generated_message"],
-                    linked_memory_id=heuristic.linked_memory_id if heuristic else None,
-                    linked_conversation_id=heuristic.linked_conversation_id if heuristic else None,
-                )
-                if injection_result:
-                    results["injected"] += 1
-                    print(f"💬 Message injected for {username}")
-                else:
-                    results["injection_failed"] += 1
-                    print(f"⚠️  inject_prompt failed for {username} — will still send FCM")
-
+                # ── CRITICAL: Create conversation FIRST, THEN inject with the new ID ──
+                # The linked_conversation_id must point to the NEW proactive conversation
+                # the user will open, not the old conversation from memory extraction.
                 experiment_id_str = str(user.get("experimentId", ""))
                 num_convs = int(user.get("numberOfConversations") or 0)
                 conversation_id = self._create_conversation(user_id, experiment_id_str, num_convs)
@@ -548,6 +538,20 @@ class ResearchService:
                     print(f"📝 Pre-created conversation {conversation_id} for {username}")
                 else:
                     print(f"⚠️  Could not pre-create conversation for {username} — FCM will open home screen")
+
+                # Now inject the prompt with the NEWLY created conversation ID
+                injection_result = self.inject_prompt(
+                    user_id,
+                    message["generated_message"],
+                    linked_memory_id=heuristic.linked_memory_id if heuristic else None,
+                    linked_conversation_id=conversation_id,  # ← FIX: use the NEW conversation ID
+                )
+                if injection_result:
+                    results["injected"] += 1
+                    print(f"💬 Message injected for {username} (linked to conversation {conversation_id})")
+                else:
+                    results["injection_failed"] += 1
+                    print(f"⚠️  inject_prompt failed for {username} — will still send FCM")
 
                 fcm_extra = {}
                 if conversation_id and experiment_id_str:
