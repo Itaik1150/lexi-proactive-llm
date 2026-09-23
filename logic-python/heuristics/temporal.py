@@ -98,7 +98,7 @@ class TemporalHeuristic(BaseHeuristic):
         proactiveMemory.future_mentions, deduplicating by text.
         Already-fired mentions are not re-added.
         """
-        all_texts = []
+        conversations_to_process: list = []  # [(conv_id, texts), ...]
 
         # ── Phase A: Read messages ─────────────────────────────────────────────
         try:
@@ -117,51 +117,60 @@ class TemporalHeuristic(BaseHeuristic):
                     {"conversationId": conv_id, "role": "user"},
                     sort=[("messageNumber", 1)],
                 ))
-                all_texts.extend([m.get("content", "") for m in raw if m.get("content")])
+                texts = [m.get("content", "") for m in raw if m.get("content")]
+                conversations_to_process.append((conv_id, texts))
         except Exception as e:
             print(f"⚠️  TemporalHeuristic.create_memory read ({self.username}): {e}")
             return
         finally:
             self.mongodb_client.disconnect()
 
-        if not all_texts:
+        if not conversations_to_process:
             return
 
         # Task 6.3: detect language from collected messages (character analysis,
         # no extra DB call). Applied to self.language immediately; persisted in
         # Phase C below so future cycles read from preferred_language (cascade lvl 1).
+        all_texts = []
+        for _, texts in conversations_to_process:
+            all_texts.extend(texts)
         _detected_lang = self._detect_language(all_texts)
         if _detected_lang:
             self.language = _detected_lang
 
-        # ── Phase B: LLM extraction ────────────────────────────────────────────
+        # ── Phase B: LLM extraction per conversation ───────────────────────────
         today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        joined = "\n".join(f"- {m}" for m in all_texts[-40:] if m)
-        # {today_iso} lives in MEMORY_SCHEMA; substitute on the fully assembled prompt.
-        system = self._safe_memory_prompt(self.memory_prompt).replace("{today_iso}", today_iso)
-
         new_mentions = []
-        try:
-            raw_text = self.llm_service.call_with_prompt(
-                system=system,
-                user_content=f"User messages:\n{joined}",
-                json_mode=True,
-                max_tokens=400,
-            )
-            parsed = json.loads(raw_text)
-            for item in (parsed.get("future_mentions") or []):
-                if isinstance(item, dict):
-                    text_val = (item.get("text") or "").strip()
-                    if text_val:
-                        new_mentions.append({
-                            "text":            text_val,
-                            "when_iso":        item.get("when_iso"),
-                            "conversationId":  conv_id,  # Added automatically: source conversation
-                            "timestamp_iso":   today_iso,  # Added automatically: extraction time
-                        })
-        except Exception as e:
-            print(f"⚠️  TemporalHeuristic.create_memory LLM ({self.username}): {e}")
-            return
+        
+        for conv_id, texts in conversations_to_process:
+            if not texts:
+                continue
+                
+            joined = "\n".join(f"- {m}" for m in texts[-40:] if m)
+            # {today_iso} lives in MEMORY_SCHEMA; substitute on the fully assembled prompt.
+            system = self._safe_memory_prompt(self.memory_prompt).replace("{today_iso}", today_iso)
+
+            try:
+                raw_text = self.llm_service.call_with_prompt(
+                    system=system,
+                    user_content=f"User messages:\n{joined}",
+                    json_mode=True,
+                    max_tokens=400,
+                )
+                parsed = json.loads(raw_text)
+                for item in (parsed.get("future_mentions") or []):
+                    if isinstance(item, dict):
+                        text_val = (item.get("text") or "").strip()
+                        if text_val:
+                            new_mentions.append({
+                                "text":            text_val,
+                                "when_iso":        item.get("when_iso"),
+                                "conversationId":  conv_id,  # ✅ FIXED: Now correctly links to THIS conversation
+                                "timestamp_iso":   today_iso,  # Added automatically: extraction time
+                            })
+                            print(f"⏰ [{self.username}] Extracted future mention from conversation {conv_id[:8]}: '{text_val[:50]}'")
+            except Exception as e:
+                print(f"⚠️  TemporalHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
 
         # ── Phase C: Merge into MongoDB ────────────────────────────────────────
         # Runs even when no new mentions are found so that the detected language

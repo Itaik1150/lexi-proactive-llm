@@ -95,7 +95,7 @@ class AffectiveHeuristic(BaseHeuristic):
         """
         memory = self._memory
         scanned_ids: set = set(memory.get("affective_scanned_conversation_ids") or [])
-        all_texts: list = []
+        conversations_to_process: list = []  # [(conv_id, texts), ...]
         newly_scanned_ids: list = []
 
         # ── Phase A: Read messages from UNANALYZED conversations only ─────────
@@ -128,8 +128,8 @@ class AffectiveHeuristic(BaseHeuristic):
                     sort=[("messageNumber", 1)],
                 ))
                 texts = [m.get("content", "") for m in raw if m.get("content")]
-                if texts:
-                    all_texts.extend(texts)
+                # Store conversation ID WITH its texts to maintain the link
+                conversations_to_process.append((conv_id, texts))
                 # Mark as scanned even if empty — avoids re-fetching every cycle.
                 # Conversations with future messages will appear as a NEW conv doc.
                 newly_scanned_ids.append(conv_id)
@@ -144,16 +144,23 @@ class AffectiveHeuristic(BaseHeuristic):
 
         # Task 6.3: detect language from the messages collected above.
         _detected_lang = None
+        all_texts = []
+        for _, texts in conversations_to_process:
+            all_texts.extend(texts)
         if all_texts:
             _detected_lang = self._detect_language(all_texts)
             if _detected_lang:
                 self.language = _detected_lang
 
-        # ── Phase B: LLM extraction (outside DB connection) ────────────────────
+        # ── Phase B: LLM extraction per conversation (outside DB connection) ───
         new_memories: list = []
-        if all_texts:
-            today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-            joined = "\n".join(f"- {m}" for m in all_texts[-20:] if m)
+        today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        
+        for conv_id, texts in conversations_to_process:
+            if not texts:
+                continue
+                
+            joined = "\n".join(f"- {m}" for m in texts[-20:] if m)
             system = self._safe_memory_prompt(
                 self.memory_prompt.replace("{today_iso}", today_iso)
             )
@@ -172,12 +179,13 @@ class AffectiveHeuristic(BaseHeuristic):
                             "memory_id":       str(_ObjectId()),  # Unique ID for surgical mark-as-used
                             "content":         content,
                             "affective_score": max(1, min(10, int(item.get("affective_score") or 1))),
-                            "conversationId":  conv_id,  # Added automatically: source conversation
+                            "conversationId":  conv_id,  # ✅ FIXED: Now correctly links to THIS conversation
                             "timestamp_iso":   today_iso,  # Added automatically: extraction time
                             "used":            False,  # Added automatically: tracking field
                         })
+                        print(f"💛 [{self.username}] Extracted memory from conversation {conv_id[:8]}: '{content[:50]}'")
             except Exception as e:
-                print(f"⚠️  AffectiveHeuristic.create_memory LLM ({self.username}): {e}")
+                print(f"⚠️  AffectiveHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
 
         # ── Phase C: Write to MongoDB ──────────────────────────────────────────
         try:
