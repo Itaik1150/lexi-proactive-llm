@@ -43,6 +43,21 @@ class ConversationsService {
             conversationId,
         );
         const chatRequest = this.getChatRequest(metadataConversation.agent, messages);
+        
+        // DEBUG: Log exact messages being sent to LLM
+        console.log('=== MESSAGES SENT TO LLM ===');
+        console.log('Total messages:', chatRequest.messages.length);
+        chatRequest.messages.forEach((msg, idx) => {
+            console.log(`\n[${idx}] Role: ${msg.role}`);
+            console.log(`Content length: ${msg.content?.length || 0} characters`);
+            if (msg.role === 'system') {
+                console.log(`System prompt preview: ${msg.content?.substring(0, 200)}...`);
+            } else {
+                console.log(`Content: ${msg.content?.substring(0, 150)}...`);
+            }
+        });
+        console.log('=== END OF MESSAGES ===\n');
+        
         await this.createMessageDoc(message, conversationId, conversation.length + 1);
 
         let assistantMessage = '';
