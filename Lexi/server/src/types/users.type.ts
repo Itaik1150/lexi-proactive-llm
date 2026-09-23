@@ -37,4 +37,5 @@ export interface IUser {
         }>;
         [key: string]: any;
     };
+    conversationSummaries?: string[];
 }

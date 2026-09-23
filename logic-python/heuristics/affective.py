@@ -55,6 +55,7 @@ class AffectiveHeuristic(BaseHeuristic):
 
     # Task 6.5: structural part — injected by _safe_memory_prompt(), never shown in UI.
     # Note: conversationId, timestamp_iso, and used are added automatically by Python code.
+    # Dual-Tier Memory: Also extracts a factual summary for peripheral awareness.
     MEMORY_SCHEMA: str = (
         "For each genuine emotional share, produce an object with:\n"
         '  "content":        exact quote or close paraphrase of the emotional share\n'
@@ -62,8 +63,13 @@ class AffectiveHeuristic(BaseHeuristic):
         '  "timestamp_iso":  use today\'s ISO datetime for all items\n'
         '  "used":           false\n\n'
         'Schema: {"emotional_memories": [{"content": str, "affective_score": int 1\u201310, '
-        '"timestamp_iso": str, "used": false}]}\n'
-        'Return {"emotional_memories": []} if no genuine emotional content is present.'
+        '"timestamp_iso": str, "used": false}]}\n\n'
+        'CRITICAL: Also generate a "conversation_summary" field (2-3 sentences) that provides '
+        'a factual overview of what the user discussed in this conversation. '
+        'This summary MUST include specific entities mentioned: names of people, pets, colors, '
+        'places, problems, or events. Be concrete and specific.\n\n'
+        'Full schema: {"emotional_memories": [...], "conversation_summary": str}\n'
+        'Return {"emotional_memories": [], "conversation_summary": ""} if the conversation is empty or trivial.'
     )
 
     DEFAULT_MESSAGE_PROMPT = (
@@ -154,6 +160,7 @@ class AffectiveHeuristic(BaseHeuristic):
 
         # ── Phase B: LLM extraction per conversation (outside DB connection) ───
         new_memories: list = []
+        new_summaries: list = []  # Dual-Tier Memory: collect summaries
         today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         
         for conv_id, texts in conversations_to_process:
@@ -172,6 +179,8 @@ class AffectiveHeuristic(BaseHeuristic):
                     max_tokens=600,
                 )
                 parsed = json.loads(raw_text)
+                
+                # Extract emotional memories (Deep Dive tier)
                 for item in (parsed.get("emotional_memories") or []):
                     content = (item.get("content") or "").strip()
                     if content:
@@ -184,6 +193,13 @@ class AffectiveHeuristic(BaseHeuristic):
                             "used":            False,  # Added automatically: tracking field
                         })
                         print(f"💛 [{self.username}] Extracted memory from conversation {conv_id[:8]}: '{content[:50]}'")
+                
+                # Extract conversation summary (Peripheral Awareness tier)
+                summary = (parsed.get("conversation_summary") or "").strip()
+                if summary:
+                    new_summaries.append(summary)
+                    print(f"📝 [{self.username}] Generated summary for conversation {conv_id[:8]}: '{summary[:60]}'")
+                    
             except Exception as e:
                 print(f"⚠️  AffectiveHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
 
@@ -200,11 +216,22 @@ class AffectiveHeuristic(BaseHeuristic):
             }
             if _detected_lang:
                 update["$set"] = {"proactiveMemory.preferred_language": _detected_lang}
-            if new_memories:
-                update["$push"] = {
-                    "proactiveMemory.emotional_memories": {"$each": new_memories}
-                }
-                print(f"💛 [{self.username}] Extracted {len(new_memories)} new emotional memory(ies)")
+            
+            # Push both emotional memories and summaries
+            if new_memories or new_summaries:
+                update["$push"] = {}
+                if new_memories:
+                    update["$push"]["proactiveMemory.emotional_memories"] = {"$each": new_memories}
+                    print(f"💛 [{self.username}] Extracted {len(new_memories)} new emotional memory(ies)")
+                
+                # Dual-Tier Memory: push summaries (keep last 30)
+                if new_summaries:
+                    update["$push"]["conversationSummaries"] = {
+                        "$each": new_summaries,
+                        "$slice": -30  # Keep only the last 30 summaries
+                    }
+                    print(f"📝 [{self.username}] Added {len(new_summaries)} conversation summary(ies) (rolling window of 30)")
+            
             self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
                 {"_id": _ObjectId(self.user_id)}, update
             )

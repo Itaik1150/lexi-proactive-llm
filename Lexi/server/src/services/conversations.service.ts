@@ -211,8 +211,22 @@ class ConversationsService {
     ) => {
         let systemPrompt = { role: 'system', content: agent.systemStarterPrompt };
 
-        // Inject proactive context on every turn of a proactive conversation (fixes "goldfish syndrome").
-        // getProactiveContext returns null if this conversation is not flagged as proactive.
+        // === DUAL-TIER MEMORY INJECTION ===
+        
+        // Tier 1: Peripheral Awareness - inject rolling conversation summaries for ALL conversations
+        if (userId) {
+            const summaries = await this.getConversationSummaries(userId);
+            if (summaries && summaries.length > 0) {
+                systemPrompt.content +=
+                    `\n\n--- Context from Previous Conversations ---\n` +
+                    summaries.map((summary, idx) => `${idx + 1}. ${summary}`).join('\n') +
+                    `\n--- End of Context ---\n\n` +
+                    `Use this context naturally to maintain continuity. Do not explicitly mention "reading summaries" or "reviewing notes."`;
+            }
+        }
+
+        // Tier 2: Deep Dive - inject specific past conversation transcript for proactive conversations
+        // This runs AFTER summaries so the LLM has both general context AND specific details
         if (userId && conversationId) {
             const context = await this.getProactiveContext(userId, conversationId);
             if (context) {
@@ -241,6 +255,16 @@ class ConversationsService {
         ];
 
         return messages;
+    };
+
+    private getConversationSummaries = async (userId: string): Promise<string[]> => {
+        try {
+            const user = await usersService.getUserById(userId);
+            return user.conversationSummaries || [];
+        } catch (error) {
+            console.error('[getConversationSummaries] Error:', error);
+            return [];
+        }
     };
 
     private getProactiveContext = async (userId: string, conversationId: string) => {
