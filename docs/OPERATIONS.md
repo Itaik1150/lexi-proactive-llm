@@ -19,11 +19,13 @@ Three components, three `.env` files. Copy each `.env.example` and fill it in â€
 
 | File | Variables |
 |---|---|
-| `Lexi/server/.env` | `PORT`, `NODE_ENV`, `MONGODB_URL`, `MONGODB_DB_NAME`, `JWT_SECRET_KEY`, `FRONTEND_URL`, `APK_DOWNLOAD_URL` |
+| `Lexi/server/.env` | `PORT`, `NODE_ENV`, `MONGODB_URL`, `MONGODB_DB_NAME`, `JWT_SECRET_KEY`, `FRONTEND_URL`, `APK_DOWNLOAD_URL`, optional `CORS_EXTRA_ORIGINS`, `CORS_PREVIEW_SUFFIX` |
 | `Lexi/client/.env` | `REACT_APP_API_URL`, `REACT_APP_FRONTEND_URL` |
 | `logic-python/.env` | `MONGODB_URL`, `MONGODB_DB_NAME`, `MONGODB_USERS_COLLECTION`, `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SERVICE_ACCOUNT_JSON` or `SERVICE_ACCOUNT_JSON_CONTENT`, `FCM_DEFAULT_TITLE`, `LEXI_SERVER_URL`, `FRONTEND_BASE_URL` |
 | `android-app/app/build.gradle.kts` | `SERVER_URL`, `FRONTEND_BASE_URL` (`buildConfigField`) |
 | `android-app/app/src/google-services.json` | downloaded from the Firebase console; git-ignored, so a fresh clone **cannot build** until you add it |
+
+CORS: with `NODE_ENV=production` the API only accepts browser requests from the deployed web app and `FRONTEND_URL`. If the web app is ever served from another address (custom domain, Vercel preview), add it to `CORS_EXTRA_ORIGINS` (or set `CORS_PREVIEW_SUFFIX` for previews); otherwise the browser will block API calls.
 
 Rules: never commit secrets; use a database user limited to the one database; give the Python engine and the Node API the **same** database.
 When testing locally, point `LEXI_SERVER_URL` at your local API â€” its default is production.
@@ -50,7 +52,8 @@ python scheduler.py
 Unit tests (no database or network needed):
 
 ```bash
-cd logic-python && python -m unittest discover -s tests -v
+cd logic-python && python -m unittest discover -s tests -v   # engine
+cd Lexi/server && npm test                                   # API hardening
 ```
 
 To try a send end to end you need a user document with `experimentId`, `fcmToken` (a real device token), `isProactive: true`,

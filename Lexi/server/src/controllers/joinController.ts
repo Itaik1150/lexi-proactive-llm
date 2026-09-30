@@ -8,6 +8,29 @@ const APK_DOWNLOAD_URL =
 const FRONTEND_BASE_URL =
     process.env.FRONTEND_URL || 'https://master-thesis-2026-2027-code-base.vercel.app';
 
+// Experiment ids are 24-character hex ObjectIds. Anything else is rejected before it reaches HTML or the database.
+const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+
+const escapeHtml = (value: string): string =>
+    value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+const experimentExists = async (experimentId: string): Promise<boolean> => {
+    if (!OBJECT_ID_PATTERN.test(experimentId)) return false;
+    const found = await mongoose.connection.db
+        .collection('experiments')
+        .findOne({ _id: new mongoose.Types.ObjectId(experimentId) }, { projection: { _id: 1 } });
+    return !!found;
+};
+
+const sendInvalidLink = (res: Response): void => {
+    res.status(404).type('text/plain').send('This invitation link is not valid. Please ask the researcher for a new one.');
+};
+
 // Strip IPv4-mapped IPv6 prefix so ::ffff:1.2.3.4 and 1.2.3.4 match.
 const normalizeIp = (ip: string): string =>
     ip.startsWith('::ffff:') ? ip.slice(7) : ip;
@@ -70,7 +93,7 @@ const buildLandingPage = (experimentId: string): string => `<!DOCTYPE html>
       You have been invited to participate in an academic research study
       at <strong>Ben-Gurion University of the Negev (BGU)</strong>.
     </p>
-    <a class="btn" href="/join/${experimentId}/download">
+    <a class="btn" href="/join/${escapeHtml(experimentId)}/download">
       Download &amp; Join
     </a>
     <div class="steps">
@@ -91,6 +114,16 @@ class JoinController {
     // GET /join/:experimentId  →  serve landing page HTML
     landingPage = async (req: Request, res: Response): Promise<void> => {
         const { experimentId } = req.params;
+        try {
+            if (!(await experimentExists(experimentId))) {
+                sendInvalidLink(res);
+                return;
+            }
+        } catch (err) {
+            console.error('[join] experiment lookup failed:', err);
+            res.status(500).type('text/plain').send('Something went wrong. Please try again.');
+            return;
+        }
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.status(200).send(buildLandingPage(experimentId));
     };
@@ -101,6 +134,10 @@ class JoinController {
         const ip = getClientIp(req);
 
         try {
+            if (!(await experimentExists(experimentId))) {
+                sendInvalidLink(res);
+                return;
+            }
             const db = mongoose.connection.db;
             await db.collection('apk_sessions').insertOne({
                 ip,

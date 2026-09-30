@@ -12,6 +12,7 @@ import { formsRouter } from './routers/formsRouter';
 import { joinRouter } from './routers/joinRouter';
 import { usersRouter } from './routers/usersRouter.router';
 import { usersService } from './services/users.service';
+import { corsOrigin } from './utils/cors';
 
 dotenv.config();
 
@@ -41,23 +42,7 @@ const setupServer = () => {
     app.set('trust proxy', true);
     app.use(bodyParser.json());
     const corsOptions = {
-        origin: (origin, callback) => {
-            const allowedOrigins = [
-                process.env.FRONTEND_URL || 'http://localhost:3000',
-                'https://master-thesis-2026-2027-code-base.vercel.app',  // production
-                'http://10.0.2.2:3000',
-                'http://127.0.0.1:3000',
-                'http://0.0.0.0:3000',
-                'http://192.168.31.200:3000',  // real phone WiFi testing (static IP)
-            ];
-            // Allow any Vercel preview URLs for this project
-            const isVercelPreview = origin && origin.includes('master-thesis-2026-2027-code-base') && origin.endsWith('.vercel.app');
-            if (!origin || allowedOrigins.includes(origin) || isVercelPreview) {
-                callback(null, true);
-            } else {
-                callback(new Error(`CORS: origin ${origin} not allowed`));
-            }
-        },
+        origin: corsOrigin(),
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -67,7 +52,7 @@ const setupServer = () => {
 
     const PORT = Number(process.env.PORT) || 5000;
     app.use('/health', (req, res) => res.status(200).send('OK'));
-    // /join serves the participant landing page — no auth, no CORS restriction needed.
+    // /join serves the participant landing page — public, but validated and rate-limited (see joinRouter).
     app.use('/join', joinRouter());
     app.use('/conversations', conversationsRouter());
     app.use('/experiments', experimentsRouter());

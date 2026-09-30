@@ -117,7 +117,7 @@ All times are `Asia/Jerusalem`.
 2. **Download** hits `/join/<id>/download`: the server stores `{ip, experimentId, timestamp, matched:false}` in `apk_sessions` and redirects to the APK release.
 3. On first launch `MainActivity` calls the API's match-session endpoint; the server matches the caller's IP to the newest unmatched session
    from the last 60 minutes and returns the `experimentId`, which the app stores. (Weakness: REVIEW V9. Fallback: manual URL entry.)
-4. The participant registers/logs in inside the WebView; the page passes the FCM token to the API (`/users/fcm-token`).
+4. The participant registers/logs in inside the WebView; the page passes the FCM token to the API (`/users/fcm-token` or `/users/register-device`). These calls require the login cookie and always act on the logged-in user.
 5. From then on `LexiMessagingService` receives pushes, builds a high-priority notification and, on tap, opens the deep-link URL.
 
 ## 7. Collections (MongoDB Atlas)

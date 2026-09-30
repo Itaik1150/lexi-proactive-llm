@@ -125,63 +125,51 @@ class UsersController {
         res.status(200).send();
     });
 
-    updateFCMToken = requestHandler(
-        async (req: Request, res: Response) => {
-            const { userId, fcmToken } = req.body;
+    /**
+     * Stores the push token for the AUTHENTICATED user (res.locals.userId, set by requireUser).
+     * A userId in the body is only accepted if it matches; the response never contains the user record.
+     */
+    private saveFcmToken(successMessage: string, failureMessage: string) {
+        return requestHandler(
+            async (req: Request, res: Response) => {
+                const { userId: claimedUserId, fcmToken } = req.body;
+                const userId: string = res.locals.userId;
 
-            if (!userId || !fcmToken) {
-                const error = new Error('userId and fcmToken are required');
-                error['code'] = 400;
-                throw error;
-            }
+                if (!fcmToken) {
+                    const error = new Error('fcmToken is required');
+                    error['code'] = 400;
+                    throw error;
+                }
+                if (claimedUserId && String(claimedUserId) !== userId) {
+                    const error = new Error('Cannot change the token of a different user');
+                    error['code'] = 403;
+                    throw error;
+                }
 
-            const updatedUser = await usersService.updateFCMToken(userId, fcmToken);
-            res.status(200).json({ 
-                message: 'FCM token updated successfully',
-                user: updatedUser 
-            });
-        },
-        (req, res, error) => {
-            if (error.code === 404) {
-                res.status(404).json({ message: 'User not found' });
-                return;
-            }
-            if (error.code === 400) {
-                res.status(400).json({ message: error.message });
-                return;
-            }
-            res.status(500).json({ message: 'Error updating FCM token' });
-        },
-    );
+                await usersService.updateFCMToken(userId, fcmToken);
+                res.status(200).json({ message: successMessage });
+            },
+            (req, res, error) => {
+                if (error.code === 404) {
+                    res.status(404).json({ message: 'User not found' });
+                    return;
+                }
+                if (error.code === 400) {
+                    res.status(400).json({ message: error.message });
+                    return;
+                }
+                if (error.code === 403) {
+                    res.status(403).json({ message: 'Forbidden' });
+                    return;
+                }
+                res.status(500).json({ message: failureMessage });
+            },
+        );
+    }
 
-    registerDevice = requestHandler(
-        async (req: Request, res: Response) => {
-            const { userId, fcmToken, experimentId } = req.body;
-            
-            if (!userId || !fcmToken) {
-                const error = new Error('userId and fcmToken are required');
-                error['code'] = 400;
-                throw error;
-            }
+    updateFCMToken = this.saveFcmToken('FCM token updated successfully', 'Error updating FCM token');
 
-            const updatedUser = await usersService.updateFCMToken(userId, fcmToken);
-            res.status(200).json({ 
-                message: 'Device registered successfully',
-                user: updatedUser 
-            });
-        },
-        (req, res, error) => {
-            if (error.code === 404) {
-                res.status(404).json({ message: 'User not found' });
-                return;
-            }
-            if (error.code === 400) {
-                res.status(400).json({ message: error.message });
-                return;
-            }
-            res.status(500).json({ message: 'Error registering device' });
-        },
-    );
+    registerDevice = this.saveFcmToken('Device registered successfully', 'Error registering device');
 }
 
 export const usersController = new UsersController();

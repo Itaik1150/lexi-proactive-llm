@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { usersController } from '../controllers/usersController.controller';
+import { requireUser } from '../utils/authMiddleware';
 
 export const usersRouter = () => {
     const router = Router();
@@ -9,8 +10,9 @@ export const usersRouter = () => {
     router.put('/agent', usersController.updateUsersAgent);
     router.get('/user', usersController.getActiveUser);
     router.get('/validate', usersController.validateUserName);
-    router.post('/fcm-token', usersController.updateFCMToken);
-    router.post('/register-device', usersController.registerDevice);
+    // A push token identifies where a participant's notifications go, so only the logged-in user may set their own.
+    router.post('/fcm-token', requireUser, usersController.updateFCMToken);
+    router.post('/register-device', requireUser, usersController.registerDevice);
 
     return router;
 };
