@@ -21,7 +21,7 @@ The core research contribution is a **modular, probability-based heuristic engin
 
 Each heuristic is a self-contained class with its own memory extraction pipeline, LLM prompting, and cold-start fallback. Probabilities sum to 100% and are set live from the admin dashboard without touching code.
 
-![Affective Heuristic Flow](affective-heuristic-flow.svg)
+![Affective Heuristic Flow](docs/diagrams/affective-heuristic-flow.svg)
 
 ---
 
@@ -47,7 +47,7 @@ Each heuristic is a self-contained class with its own memory extraction pipeline
 └──────────────────────────┘    └──────────────────────────────────────┘
 ```
 
-![Architecture Overview](architecture.svg)
+![Architecture Overview](docs/diagrams/architecture.svg)
 
 ---
 
