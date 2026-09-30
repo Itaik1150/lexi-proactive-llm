@@ -198,7 +198,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
     const [proactiveEnabled,      setProactiveEnabled]      = useState(false);
     const [frequency,             setFrequency]             = useState(30);
     const [llmModel,              setLlmModel]              = useState('gpt-4o');
-    const [maxDaily,              setMaxDaily]              = useState(0); // 0 = no limit
     const [configs,               setConfigs]               = useState<HeuristicConfigs>(buildDefaultConfigs);
     const [schedule,              setSchedule]              = useState<ScheduleSettings>(DEFAULT_SCHEDULE);
     const [isLoading,             setIsLoading]             = useState(false);
@@ -214,7 +213,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
             setProactiveEnabled(ps.enabled);
             setFrequency(ps.frequency ?? 30);
             setLlmModel(ps.llmModel ?? 'gpt-4o');
-            setMaxDaily(ps.maxDailyNotifications ?? 0);
             setConfigs(initConfigs(ps.heuristicWeights, ps.heuristicPrompts));
             setSchedule({
                 allowedDays:   ps.schedule?.allowedDays?.length   ? ps.schedule.allowedDays   : DEFAULT_SCHEDULE.allowedDays,
@@ -226,7 +224,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
             setProactiveEnabled(false);
             setFrequency(30);
             setLlmModel('gpt-4o');
-            setMaxDaily(0);
             setConfigs(buildDefaultConfigs());
             setSchedule(DEFAULT_SCHEDULE);
         }
@@ -397,7 +394,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                         heuristicPrompts,
                         schedule,
                         llmModel,
-                        maxDailyNotifications: maxDaily,
                     },
                 },
             };
@@ -619,32 +615,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                 Select at least one allowed day and at least one time.
                             </Typography>
                         )}
-                    </Box>
-
-                    <Divider />
-
-                    {/* ── Daily notification cap ─────────────────────────────── */}
-                    <Box>
-                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                            Daily notification limit
-                        </Typography>
-                        <TextField
-                            size="small"
-                            type="number"
-                            label="Max per participant per day"
-                            value={maxDaily}
-                            disabled={!proactiveEnabled}
-                            inputProps={{ min: 0, max: 20, step: 1 }}
-                            onChange={e => {
-                                const n = Math.floor(Number(e.target.value));
-                                setMaxDaily(Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 0);
-                            }}
-                            sx={{ width: 260 }}
-                        />
-                        <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
-                            The engine stops sending to a participant once they have received this many proactive
-                            notifications since midnight (Asia/Jerusalem). Use 0 for no limit.
-                        </Typography>
                     </Box>
 
                     <Divider />

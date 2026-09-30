@@ -73,7 +73,6 @@ export interface ExperimentFeatures {
         schedule?:         ScheduleSettings;            // Task 4.3 — days & hours scheduling
         llmModel?: string; // e.g. "gpt-4o" | "claude-3-5-sonnet-20241022"
         defaultLanguage?: string;        // experiment-level language fallback ('he' | 'en')
-        maxDailyNotifications?: number;  // per participant per day; 0 or unset = no limit
     };
 }
 
