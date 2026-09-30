@@ -21,7 +21,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 | ID | Item | Status | Note |
 |---|---|---|---|
-| S1 | Rotate the leaked Atlas password | 🟡 | only you can do this (Atlas → Database Access) |
+| S1 | Rotate the leaked Atlas password | ✅ | done by the owner 30 Sep 2026 (history still contains the old, now-dead URI) |
 | V1 | Daily cap could not be set | ✅ | schema + types + dashboard field added |
 | V1b | Dashboard save wiped `defaultLanguage` | ✅ | found while fixing V1; save now keeps unknown keys |
 | S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
