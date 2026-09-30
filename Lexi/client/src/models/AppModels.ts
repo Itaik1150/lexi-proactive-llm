@@ -175,6 +175,7 @@ export interface ExperimentFeatures {
         schedule?:             ScheduleSettings;            // Task 4.3 — days & hours scheduling
         llmModel?:             string;
         defaultLanguage?:      string;                      // Task 6.3 — experiment-level language fallback
+        maxDailyNotifications?: number;                     // per participant per day; 0 or unset = no limit
     };
 }
 

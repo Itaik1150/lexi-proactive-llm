@@ -65,6 +65,9 @@ export const experimentsSchema = new Schema<IExperiment>(
                     }, // used when mode='random'; count = how many notifications to fire within the window
                 },
                 llmModel: { type: String, default: 'gpt-4o' },
+                // Max proactive notifications per participant per day (Asia/Jerusalem calendar day).
+                // 0 = no limit. Enforced by the Python engine (research_service.py, scheduler.py).
+                maxDailyNotifications: { type: Number, default: 0, min: 0 },
                 // Task 6.3: experiment-level fallback language for users without a stored preference
                 defaultLanguage: { type: String, default: 'he' },
             }
