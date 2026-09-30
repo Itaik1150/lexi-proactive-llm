@@ -22,8 +22,9 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | ID | Item | Status | Note |
 |---|---|---|---|
 | S1 | Rotate the leaked Atlas password | ✅ | done by the owner 30 Sep 2026 (history still contains the old, now-dead URI) |
-| V1 | Daily cap could not be set | ✅ | schema + types + dashboard field added |
+| V1 | Daily limit could not be applied | ✅ | no extra setting: the schedule's own count (exact times / window counts / AI count) is now a hard per-day maximum |
 | V1b | Dashboard save wiped `defaultLanguage` | ✅ | found while fixing V1; save now keeps unknown keys |
+| R1 | Every job notified all experiments' users | ✅ | jobs are scoped to the experiment whose schedule fired them |
 | S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
 | S2 S3 S4 S5 S6 | Auth on token routes, WebView allow-list, `/join` validation, CORS, Android hardening | ⬜ | |
 | V2 V3 V4 V6 R5 V9 | Log every attempt, roll back failed sends, reset model, re-scan conversations, one reset path, confirm join | ⬜ | |
@@ -72,15 +73,15 @@ Also in history: a whole `venv/` folder (3,600 files) from the initial commit. H
 
 These matter most for the thesis. Ordered by how much they can change your conclusions.
 
-### V1. The daily notification cap can never be set **[V]** — ✅ fixed
-Python enforces `proactiveSettings.maxDailyNotifications` (`research_service.py:197`, `:1034`; `scheduler.py:259`).
-That key does not exist in the Mongoose schema (`ExperimentsModel.ts`), the TypeScript types, or the React dashboard —
-`grep maxDailyNotifications Lexi/` returns nothing. Mongoose strict mode drops unknown keys on save, so even a
-hand-edited value is lost the next time anyone saves the experiment.
-**Result: no cap is ever applied.** `CURRENT_SPRINT` item 1.4 (still unchecked) was right to worry.
-*Fix (done):* the field is now in the schema, both type files and `ProactiveSettingsModal` (0 = no limit). Still open: log the cap in force with each send (part of V2).
-*Also found (V1b):* the modal rebuilt `proactiveSettings` from scratch on every save, so `defaultLanguage` (and any other key it does not edit) was deleted; Python then fell back to English. The save now spreads the existing settings first.
-*After deploying:* open each experiment in the dashboard, set the limit and save — existing experiments have no value stored, which means "no limit".
+### V1. The daily notification limit was never applied **[V]** — ✅ fixed
+Python looked for `proactiveSettings.maxDailyNotifications`, which the Node schema and dashboard never had — so nothing ever limited
+how many notifications a participant got. The dashboard already expresses the number per day through the schedule
+("notifications per user" for random windows and the AI mode, or the number of fire times for exact mode), so no separate setting was added.
+*Fix (done):* `services/schedule_utils.daily_quota()` derives the per-day maximum from the schedule, and `coordinated_send_and_inject`
+— the single place every send passes through, for all three modes — skips a participant whose sends since local midnight have reached it.
+The scheduler uses the same module, and tests check that the jobs it registers match the quota. If the database cannot be read the send is skipped rather than risked.
+*Also fixed (V1b):* the dashboard rebuilt `proactiveSettings` from scratch on every save, so `defaultLanguage` (and any key it does not edit) was deleted and Python fell back to English. The save now spreads the existing settings first.
+*Still open:* store the quota in force on each log row (part of V2).
 
 ### V2. Only successful sends are logged **[V]**
 `log_proactive_event` is called only inside `if notification_result:`. Failures, dropped sends, skipped users,
@@ -194,7 +195,7 @@ naive datetimes are read as UTC. Skew is 2–3 h against a 6–24 h window. *Fix
 
 ## 3. Reliability & operations
 
-- **R1. The scheduler ignores which experiment fired. [V]** Every job — whichever experiment's fire time triggered it — calls `run_full_proactive_cycle()` for *all* enabled experiments' users. With two experiments on different schedules, participants are notified at the other experiment's times; only the per-user weekday check and the (unset, see V1) cap limit it.
+- **R1. The scheduler ignored which experiment fired — ✅ fixed. [V]** Every job — whichever experiment's fire time triggered it — calls `run_full_proactive_cycle()` for *all* enabled experiments' users. With two experiments on different schedules, participants are notified at the other experiment's times; only the per-user weekday check and the daily quota (added in V1) limit it. *Fix (done): every job now carries its experiment id and only that experiment's participants are processed; the hard-coded fallback jobs still cover all.*
 - **R2. The scheduler is a background subprocess of the web service. [V]** `render-start.sh` runs `python scheduler.py || echo …` in the background; if it dies it is not restarted and nothing alerts you. The job store is in memory, so a redeploy loses today's AI-planned times (the planner only runs at 00:01), and APScheduler's default `misfire_grace_time` is 1 s, so a busy moment silently skips a job.
   *Fix:* deploy it as a separate Render **Background Worker**, write a heartbeat document to Mongo and alert when it goes stale, run the AI planner at startup as well as at 00:01, set `misfire_grace_time`.
 - **R3. One shared MongoDB client, reconnected on every call. [V]** `connect()` builds a new `MongoClient` each time and overwrites `self.client`; `disconnect()` closes whichever is current. APScheduler runs jobs on a thread pool, so two overlapping jobs can close each other's client mid-query. It is also slow (a new TLS handshake per operation) and leaks the client if `connect()` is called twice. *Fix:* create one `MongoClient` at import and never close it — it is thread-safe.
@@ -233,7 +234,7 @@ deep-linking straight into the pre-created conversation; live-editable configura
 | Old claim | Reality |
 |---|---|
 | `SYSTEM_ARCHITECTURE`: "forms / dataAggregation are thesis analytics" | Both are **unchanged upstream Lexi code**; not yours to claim |
-| "Researchers set `maxDailyNotifications` in the dashboard" | Not possible (V1) |
+| "Researchers set `maxDailyNotifications` in the dashboard" | No such setting; the schedule defines it (V1) |
 | Affective "tracks scan state via `affective_last_analyzed_msg_count`" | Code uses `affective_scanned_conversation_ids` |
 | Language cascade ends at `"he"` | Code ends at `"en"` unless the experiment sets `defaultLanguage` (Mongoose default `'he'`) |
 | README: Temporal asks "how it went" | Only *future* events 6–24 h ahead; the "just passed" branch of the prompt is dead code |
@@ -270,7 +271,7 @@ deep-linking straight into the pre-created conversation; live-editable configura
 | When | Do | Items |
 |---|---|---|
 | **Today** | Rotate the Atlas password | S1 |
-| **This week** (small, high value) | Auth on FCM routes · validate `/join` param · `allowBackup=false` · allow-list WebView origin · narrow stale-token detection · CORS exact match · add `maxDailyNotifications` to schema/UI | S2 S3 S4 S5 S6 S8 V1 |
+| **This week** (small, high value) | Auth on FCM routes · validate `/join` param · `allowBackup=false` · allow-list WebView origin · CORS exact match | S2 S3 S4 S5 S6 |
 | **Before more participants** | Log every attempt · roll back failed sends · reset model per user · fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
 | **Before the analysis** | Measure fallback rate · decouple memory building · align temperature/limits · timezone · contexts across conditions | V5 V7 V10 V11 V12 V13 |
 | **Hardening** | Separate worker + heartbeat · single Mongo client · per-experiment scheduling · tests · pin/update deps | R1–R4 R9 S11 |

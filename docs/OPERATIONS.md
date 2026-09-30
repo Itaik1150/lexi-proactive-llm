@@ -84,7 +84,7 @@ See the runbook.
 **When a participant reports no notifications**
 1. `users.isProactive` and `users.fcmToken` set? (token errors clear both — REVIEW S8)
 2. Notifications allowed in Android settings? Battery optimisation off for the app?
-3. Any `proactive_logs` row for them today? If not: weekday allowed? `enabled`? weights not all `reactive`? daily cap?
+3. Any `proactive_logs` row for them today? If not: weekday allowed? `enabled`? weights not all `reactive`? daily quota already reached (the log line says `daily quota reached (n/m)`)?
 4. Render logs around the scheduled time: search for their username.
 
 **Rotating credentials** — Atlas user password (then Render env `MONGODB_URL` in *both* services' config), `JWT_SECRET_KEY` (logs everyone out),

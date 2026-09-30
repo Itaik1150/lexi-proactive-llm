@@ -19,6 +19,7 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://master-thesis-2026-2
 from utils.mongodb_client import mongodb_client
 from services.fcm_service import FCMService
 from services.llm_service import ProactiveLogic
+from services.schedule_utils import daily_quota
 
 class ResearchService:
 
@@ -86,7 +87,7 @@ class ResearchService:
         finally:
             mongodb_client.disconnect()
     
-    def get_all_proactive_users(self):
+    def get_all_proactive_users(self, experiment_id: Optional[str] = None):
         """
         Get all proactive users with FCM tokens whose experiment has proactive enabled.
         Joins users → experiments to filter out experiments where proactive is disabled.
@@ -101,10 +102,10 @@ class ResearchService:
                 return []
 
             # Step 1: find all experiment IDs that have proactiveSettings.enabled = true
-            enabled_experiments = list(mongodb_client.db["experiments"].find(
-                {"experimentFeatures.proactiveSettings.enabled": True},
-                {"_id": 1}
-            ))
+            exp_filter = {"experimentFeatures.proactiveSettings.enabled": True}
+            if experiment_id:
+                exp_filter["_id"] = ObjectId(str(experiment_id))
+            enabled_experiments = list(mongodb_client.db["experiments"].find(exp_filter, {"_id": 1}))
             enabled_ids = [exp["_id"] for exp in enabled_experiments]
 
             if not enabled_ids:
@@ -148,29 +149,21 @@ class ResearchService:
 
     # === PROACTIVE CYCLE METHODS ===
 
-    def get_proactive_users_with_rate_limit(self, cycle_id: str) -> List[Dict]:
+    def get_proactive_users_with_rate_limit(self, cycle_id: str, experiment_id: Optional[str] = None) -> List[Dict]:
         """
-        Return all proactive users who have not yet received a notification in
-        the current scheduler cycle AND have not exceeded their experiment's
-        maxDailyNotifications limit.
-        
-        Enforces per-user daily caps (00:00-23:59 Jerusalem time) to prevent spam.
+        Return the proactive users (of one experiment, or all) who have not yet received a
+        notification in the current scheduler cycle.
+
+        The per-day limit is NOT applied here: it is the schedule's own count and is
+        enforced in coordinated_send_and_inject() for every scheduling mode.
         """
-        from zoneinfo import ZoneInfo
-        
-        users = self.get_all_proactive_users()
+        users = self.get_all_proactive_users(experiment_id)
 
         if not users:
             return []
 
         eligible_users = []
         
-        # Calculate today's date range in Jerusalem time (00:00 to now)
-        tz_il = ZoneInfo("Asia/Jerusalem")
-        now_il = datetime.now(tz_il)
-        today_start = now_il.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_start_utc = today_start.astimezone(timezone.utc)
-
         for user in users:
             user_id  = str(user["_id"])
             username = user.get("username", "Unknown")
@@ -190,30 +183,6 @@ class ResearchService:
                     print(f"⏭️  {username} already received message this cycle, skipping")
                     continue
 
-                # Check 2: Daily notification count limit
-                experiment_id = user.get("experimentId")
-                if experiment_id:
-                    # Load maxDailyNotifications from experiment settings
-                    exp_doc = mongodb_client.db["experiments"].find_one(
-                        {"_id": ObjectId(str(experiment_id))},
-                        {"experimentFeatures.proactiveSettings.maxDailyNotifications": 1}
-                    )
-                    if exp_doc:
-                        ps = (exp_doc.get("experimentFeatures") or {}).get("proactiveSettings") or {}
-                        max_daily = ps.get("maxDailyNotifications")
-                        
-                        if max_daily and max_daily > 0:
-                            # Count notifications sent today (since 00:00 Jerusalem time)
-                            daily_count = mongodb_client.db["proactive_logs"].count_documents({
-                                "user_id": user_id,
-                                "status": "sent",
-                                "timestamp": {"$gte": today_start_utc}
-                            })
-                            
-                            if daily_count >= max_daily:
-                                print(f"🚫 {username} reached daily limit ({daily_count}/{max_daily}), skipping")
-                                continue
-
                 eligible_users.append(user)
 
             except Exception as e:
@@ -227,6 +196,36 @@ class ResearchService:
         print(f"👥 {len(eligible_users)} eligible out of {len(users)} proactive users")
         return eligible_users
     
+    @staticmethod
+    def _today_start_utc() -> datetime:
+        """Start of the current Asia/Jerusalem calendar day, expressed in UTC."""
+        from zoneinfo import ZoneInfo
+        now_il = datetime.now(ZoneInfo("Asia/Jerusalem"))
+        return now_il.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+    def _count_sent_today(self, user_id: str) -> Optional[int]:
+        """
+        Notifications already sent to this participant since local midnight, or None if
+        the database could not be read (the caller then skips the send rather than risk
+        exceeding the daily quota).
+        """
+        try:
+            if not mongodb_client.connect():
+                return None
+            return mongodb_client.db["proactive_logs"].count_documents({
+                "user_id": user_id,
+                "status": "sent",
+                "timestamp": {"$gte": self._today_start_utc()},
+            })
+        except Exception as e:
+            print(f"⚠️  Could not count today's notifications for {user_id[:8]}: {e}")
+            return None
+        finally:
+            try:
+                mongodb_client.disconnect()
+            except Exception:
+                pass
+
     @staticmethod
     def _is_stale_token_error(exc: Exception) -> bool:
         """
@@ -519,6 +518,21 @@ class ResearchService:
                 print(f"📅 [{username}] Today not in allowed days ({schedule.get('allowedDays')}) — skipping")
                 continue
 
+            # Hard daily quota = the notifications-per-day this experiment's schedule defines
+            # (exact: number of fire times; random: sum of window counts; ai_agent: window count).
+            quota = daily_quota(
+                schedule.get("mode"),
+                schedule.get("fireTimes"),
+                schedule.get("randomWindows"),
+            )
+            sent_today = self._count_sent_today(user_id)
+            if sent_today is None:
+                print(f"⚠️  [{username}] could not verify today's send count — skipping to stay within the quota")
+                continue
+            if sent_today >= quota:
+                print(f"🚫 [{username}] daily quota reached ({sent_today}/{quota} per schedule) — skipping")
+                continue
+
             if experiment_llm_model:
                 self.llm_service.override_model(experiment_llm_model)
 
@@ -721,7 +735,7 @@ class ResearchService:
         finally:
             mongodb_client.disconnect()
     
-    def run_full_proactive_cycle(self) -> Dict:
+    def run_full_proactive_cycle(self, experiment_id: Optional[str] = None) -> Dict:
         """
         Main orchestrator. Called by run_cycle.py and scheduler.py.
 
@@ -747,7 +761,7 @@ class ResearchService:
         print("=" * 60)
 
         try:
-            eligible_users = self.get_proactive_users_with_rate_limit(cycle_id)
+            eligible_users = self.get_proactive_users_with_rate_limit(cycle_id, experiment_id)
 
             if not eligible_users:
                 print("❌ No eligible users found — cycle complete (nothing to send)")
@@ -1015,8 +1029,6 @@ class ResearchService:
         Fetches the user doc fresh (checks still eligible), enforces daily limit,
         then delegates to coordinated_send_and_inject() with a single-element list.
         """
-        from zoneinfo import ZoneInfo
-        
         cycle_id = str(uuid.uuid4())
         user = None
         try:
@@ -1037,46 +1049,6 @@ class ResearchService:
         if not user:
             print(f"⚠️  run_single_user_cycle: user {user_id[:8]} not found or not eligible")
             return {"success": False, "message": "User not eligible"}
-
-        # Enforce daily notification limit before sending
-        username = user.get("username", "Unknown")
-        experiment_id = user.get("experimentId")
-        
-        if experiment_id:
-            try:
-                if mongodb_client.connect():
-                    exp_doc = mongodb_client.db["experiments"].find_one(
-                        {"_id": ObjectId(str(experiment_id))},
-                        {"experimentFeatures.proactiveSettings.maxDailyNotifications": 1}
-                    )
-                    if exp_doc:
-                        ps = (exp_doc.get("experimentFeatures") or {}).get("proactiveSettings") or {}
-                        max_daily = ps.get("maxDailyNotifications")
-                        
-                        if max_daily and max_daily > 0:
-                            # Calculate today's date range in Jerusalem time
-                            tz_il = ZoneInfo("Asia/Jerusalem")
-                            now_il = datetime.now(tz_il)
-                            today_start = now_il.replace(hour=0, minute=0, second=0, microsecond=0)
-                            today_start_utc = today_start.astimezone(timezone.utc)
-                            
-                            # Count notifications sent today
-                            daily_count = mongodb_client.db["proactive_logs"].count_documents({
-                                "user_id": user_id,
-                                "status": "sent",
-                                "timestamp": {"$gte": today_start_utc}
-                            })
-                            
-                            if daily_count >= max_daily:
-                                print(f"🚫 [{username}] AI-scheduled job blocked: daily limit reached ({daily_count}/{max_daily})")
-                                return {"success": False, "message": "Daily limit reached"}
-            except Exception as e:
-                print(f"⚠️  run_single_user_cycle: daily limit check failed for {username}: {e}")
-            finally:
-                try:
-                    mongodb_client.disconnect()
-                except Exception:
-                    pass
 
         results = self.coordinated_send_and_inject([user], cycle_id)
         return {"success": True, "cycle_id": cycle_id, "results": results}

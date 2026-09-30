@@ -16,6 +16,13 @@ Usage:
 import sys
 import os
 
+# Log lines contain emoji; a Windows console or pipe using cp1252 would crash on them.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Make sure imports resolve correctly when run from the repo root
 sys.path.insert(0, os.path.dirname(__file__))
 

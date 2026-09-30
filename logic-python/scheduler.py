@@ -27,6 +27,13 @@ import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+# Log lines contain emoji; a Windows console or pipe using cp1252 would crash on them.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,11 +68,12 @@ else:
 from bson import ObjectId
 
 from services.research_service import get_research_service
+from services.schedule_utils import FALLBACK_FIRE_TIMES, effective_mode
 from utils.mongodb_client import mongodb_client
 
 # ── Hardcoded fallback (used only if MongoDB is unreachable at startup, or no
 #    experiment has a schedule configured yet) ─────────────────────────────────
-FALLBACK_FIRE_TIMES = ["13:45", "17:30", "21:15"]
+# FALLBACK_FIRE_TIMES lives in services/schedule_utils.py so the daily quota uses the same values.
 FALLBACK_ALLOWED_DAYS = [0, 1, 2, 3, 4, 5, 6]  # 0=Sun .. 6=Sat, all days
 
 _DAY_ABBR = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
@@ -123,20 +131,22 @@ def load_schedules_from_db():
     return schedules
 
 
-def proactive_job():
+def proactive_job(experiment_id=None):
     """
-    Runs the full proactive cycle across ALL enabled experiments' users.
+    Runs one proactive cycle for the users of ONE experiment (the experiment whose
+    schedule fired this job). With experiment_id=None (the hardcoded fallback jobs)
+    it runs for all enabled experiments.
 
-    Per-user day-of-week enforcement happens inside coordinated_send_and_inject()
-    (each user is gated by their OWN experiment's allowedDays) — this job-level
-    day_of_week filter is a coarse pre-filter so we don't even attempt a cycle
-    on days when nobody could possibly be eligible.
+    Per-user day-of-week and daily-quota enforcement happen inside
+    coordinated_send_and_inject(); the job-level day_of_week filter is only a
+    coarse pre-filter.
     """
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n⏰ [{now_str}] Scheduled proactive cycle triggered")
+    scope = f"experiment {experiment_id[:8]}" if experiment_id else "all experiments"
+    print(f"\n⏰ [{now_str}] Scheduled proactive cycle triggered ({scope})")
 
     try:
-        result = get_research_service().run_full_proactive_cycle()
+        result = get_research_service().run_full_proactive_cycle(experiment_id)
         if result.get("success"):
             r = result.get("results", {})
             print(f"✅ Cycle done — FCM sent: {r.get('fcm_sent', 0)}, injected: {r.get('injected', 0)}")
@@ -241,36 +251,15 @@ def ai_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, windo
     Uses the 'ai_timed_' job-id prefix so the hourly reload_schedules pass does NOT
     accidentally remove these ephemeral same-day jobs.
     
-    Respects maxDailyNotifications: caps count to the experiment's daily limit to
-    avoid scheduling more notifications than allowed.
+    The count is the dashboard's "Notifications per user"; research_service enforces it
+    as a hard daily maximum, so no separate cap is applied here.
     """
     tz = ZoneInfo("Asia/Jerusalem")
     now_tz   = datetime.now(tz)
     now_str  = now_tz.strftime("%H:%M:%S")
     window_start = window.get("start", "16:00")
     window_end   = window.get("end",   "20:00")
-    
-    # Load maxDailyNotifications from experiment settings and cap count if needed
     effective_count = count
-    try:
-        if mongodb_client.connect():
-            exp_doc = mongodb_client.db["experiments"].find_one(
-                {"_id": ObjectId(experiment_id)},
-                {"experimentFeatures.proactiveSettings.maxDailyNotifications": 1}
-            )
-            if exp_doc:
-                ps = (exp_doc.get("experimentFeatures") or {}).get("proactiveSettings") or {}
-                max_daily = ps.get("maxDailyNotifications")
-                if max_daily and max_daily > 0 and max_daily < count:
-                    effective_count = max_daily
-                    print(f"   ⚠️  Count capped to maxDailyNotifications: {count} → {effective_count}")
-    except Exception as e:
-        print(f"   ⚠️  Could not load maxDailyNotifications for experiment {experiment_id[:8]}: {e}")
-    finally:
-        try:
-            mongodb_client.disconnect()
-        except Exception:
-            pass
 
     print(f"\n🤖 [{now_str}] AI daily planner — experiment {experiment_id[:8]} "
           f"window={window_start}–{window_end} count={effective_count}")
@@ -324,7 +313,9 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
         exp_id = sched["experiment_id"]
         dow = _day_of_week_str(sched["allowed_days"])
 
-        if sched["mode"] == "ai_agent" and sched["random_windows"]:
+        mode = effective_mode(sched["mode"], sched["random_windows"])
+
+        if mode == "ai_agent":
             # Register ONE daily planner cron job at 00:01. It will query each user's
             # activity data, call the LLM, and register per-user date-trigger jobs.
             window = sched["random_windows"][0]
@@ -340,7 +331,7 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
             print(f"   🤖 AI planner job [{job_id}]: daily 00:01 ({dow}), "
                   f"window={window.get('start')}–{window.get('end')}, count={count}")
 
-        elif sched["mode"] == "random" and sched["random_windows"]:
+        elif mode == "random":
             for w_idx, window in enumerate(sched["random_windows"]):
                 try:
                     start_h, start_m = map(int, window["start"].split(":"))
@@ -358,7 +349,7 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
                 for n in range(count):
                     job_id = f"proactive_{exp_id}_rand{w_idx}_{n}"
                     scheduler.add_job(
-                        proactive_job, "cron",
+                        proactive_job, "cron", args=[exp_id],
                         day_of_week=dow, hour=start_h, minute=start_m,
                         jitter=window_seconds if window_seconds > 0 else None,
                         id=job_id, replace_existing=True,
@@ -377,7 +368,7 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
                     continue
                 job_id = f"proactive_{exp_id}_{time_str.replace(':', '')}"
                 scheduler.add_job(
-                    proactive_job, "cron",
+                    proactive_job, "cron", args=[exp_id],
                     day_of_week=dow, hour=h, minute=m,
                     id=job_id, replace_existing=True,
                 )

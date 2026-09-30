@@ -49,9 +49,9 @@ Exactly which files are yours and which are upstream: [`UPSTREAM_DELTA.md`](UPST
 `scheduler.py` fires (cron, random window, or AI-planned time) → `ResearchService.run_full_proactive_cycle()`:
 
 1. **Find eligible users** — experiments with `proactiveSettings.enabled`; users with an `fcmToken` and `isProactive = true`;
-   skip anyone who already got a message this cycle; skip anyone at their `maxDailyNotifications` (see REVIEW V1).
+   skip anyone who already got a message this cycle. Jobs are scoped to the experiment whose schedule fired them.
 2. For each user, **load the experiment's live settings** from Mongo — weights, prompts, schedule, model, default language.
-3. **Weekday check** against `schedule.allowedDays` (Asia/Jerusalem; 0 = Sunday).
+3. **Weekday check** against `schedule.allowedDays` (Asia/Jerusalem; 0 = Sunday), then the **daily quota check**: the participant may receive at most the number of notifications per day that the schedule defines (see §5) — sends already logged since local midnight are counted, and the send is skipped once the quota is reached.
 4. **Draw one heuristic** with `random.uniform` over the weights. `reactive` = "send nothing" (the control).
 5. **Run the heuristic** → it (a) extracts/refreshes memory from recent conversations, (b) reloads the user,
    (c) generates a message with the LLM, or (d) falls back to a cold-start message. It never returns `None`.
@@ -97,6 +97,17 @@ Detection is character-based: > 15 % Hebrew letters ⇒ Hebrew, otherwise Englis
 | `random` | per window `{start,end,count}`: `count` cron jobs at `start` with jitter up to the window length |
 | `ai_agent` | at 00:01 a planner asks the LLM, per user, for `count` times inside `randomWindows[0]`, based on the user's activity hours, past sends and upcoming events; registers one-off jobs |
 
+**Notifications per participant per day** is whatever the schedule says, and it is enforced as a hard maximum
+(`services/schedule_utils.py::daily_quota`, checked in `coordinated_send_and_inject`):
+
+| Mode | Daily quota |
+|---|---|
+| `exact` | number of distinct fire times |
+| `random` | sum of `count` over the random windows |
+| `ai_agent` | `count` ("Notifications per user") of the window |
+
+A draw of the *reactive* control sends nothing, so a participant can receive fewer than the quota, never more.
+
 The job list is rebuilt from the database every hour on the hour, so dashboard edits apply within an hour.
 All times are `Asia/Jerusalem`.
 
@@ -125,7 +136,7 @@ All times are `Asia/Jerusalem`.
 `enabled`, `frequency`, `heuristics` (legacy booleans), `heuristicWeights {affective, temporal, behaviouralGap, generic, reactive}`
 (the dashboard forces the sum to 100 and writes `reactive` as the remainder), `heuristicPrompts.<name>.{memoryPrompt,messagePrompt}`,
 `schedule {allowedDays, mode, fireTimes, randomWindows[]}`, `llmModel`, `defaultLanguage`.
-*(`maxDailyNotifications` is read by Python but is not in the schema — REVIEW V1.)*
+There is no separate daily-limit setting: the schedule itself defines it (§5).
 
 ## 8. Design rules the code follows
 

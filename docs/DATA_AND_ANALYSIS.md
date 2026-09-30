@@ -61,7 +61,7 @@ db.proactive_logs.aggregate([
   { $sort: { n: -1 } }
 ])
 ```
-If any `n` exceeds the cap you intended, the cap was not applied (REVIEW V1).
+`n` should never exceed the notifications-per-day the experiment's schedule defines (exact: number of fire times; random: sum of window counts; AI: the window count). If it does, that is a bug — please report it.
 
 ### Language and model mix
 ```js
