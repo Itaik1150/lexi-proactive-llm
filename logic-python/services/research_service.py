@@ -19,6 +19,7 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://master-thesis-2026-2
 from utils.mongodb_client import mongodb_client
 from services.fcm_service import FCMService
 from services.llm_service import ProactiveLogic
+from services import log_schema
 from services.schedule_utils import daily_quota
 
 class ResearchService:
@@ -475,15 +476,19 @@ class ResearchService:
 
     def coordinated_send_and_inject(self, users: List[Dict], cycle_id: str) -> Dict:
         """
-        Per-user orchestration loop (Task 3.2 clean architecture):
+        Per-user orchestration loop.
 
         For each eligible user:
           1. _load_experiment_settings()  → weights + prompts + schedule + LLM + lang
           2. _is_today_allowed(schedule)  → per-user day-of-week safety net
-          3. _select_heuristic(weights)   → one heuristic name
-          4. _run_selected_heuristic()    → instantiate class, call get_proactive_message()
-          5. inject_prompt + _create_conversation + FCM send
-          6. heuristic.clear_after_send() + log
+          3. daily quota check            → the schedule's notifications/day is a hard maximum
+          4. _select_heuristic(weights)   → one heuristic name
+          5. _run_selected_heuristic()    → instantiate class, call get_proactive_message()
+          6. inject_prompt + _create_conversation + FCM send
+          7. heuristic.clear_after_send()
+
+        EVERY outcome writes one `proactive_logs` row (see services/log_schema.py), including
+        skips, control draws and failures, so the analysis has complete denominators.
         """
         results = {
             "fcm_sent": 0,
@@ -499,13 +504,36 @@ class ResearchService:
             user_id  = str(user["_id"])
             username = user.get('username', 'Unknown')
             fcm_token = user["fcmToken"]
+            experiment_id_str = str(user.get("experimentId", ""))
 
-            # ── Load experiment settings (live MongoDB read, Task 4.5) ────────
+            # Context shared by every log row written for this participant in this iteration.
+            ctx = {
+                "experiment_type": None, "selected": None, "active_weights": {},
+                "experiment_llm_model": None, "quota": None, "sent_today": None,
+            }
+
+            def record(status, reason=None, message=None, notification_id=None, conversation_id=None):
+                self.log_proactive_event(
+                    cycle_id, user_id, message, status, notification_id,
+                    experiment_type=ctx["experiment_type"],
+                    experiment_id=experiment_id_str,
+                    heuristic_weights=ctx["active_weights"],
+                    llm_model=ctx["experiment_llm_model"],
+                    reason=reason,
+                    conversation_id=conversation_id,
+                    heuristic_selected=ctx["selected"],
+                    daily_quota=ctx["quota"],
+                    sent_today_before=ctx["sent_today"],
+                )
+
+            # ── Load experiment settings (live MongoDB read) ──────────────────
             (heuristic_weights, heuristic_prompts, schedule,
              experiment_llm_model, default_language) = \
                 self._load_experiment_settings(user)
 
             active_weights     = {k: v for k, v in heuristic_weights.items() if v > 0}
+            ctx["active_weights"] = active_weights
+            ctx["experiment_llm_model"] = experiment_llm_model
             has_custom_prompts = list(heuristic_prompts.keys())
             print(
                 f"⚖️  [{username}] weights={active_weights} "
@@ -516,6 +544,7 @@ class ResearchService:
 
             if not self._is_today_allowed(schedule):
                 print(f"📅 [{username}] Today not in allowed days ({schedule.get('allowedDays')}) — skipping")
+                record(log_schema.SKIPPED_DAY, reason=f"allowedDays={schedule.get('allowedDays')}")
                 continue
 
             # Hard daily quota = the notifications-per-day this experiment's schedule defines
@@ -525,30 +554,38 @@ class ResearchService:
                 schedule.get("fireTimes"),
                 schedule.get("randomWindows"),
             )
+            ctx["quota"] = quota
             sent_today = self._count_sent_today(user_id)
+            ctx["sent_today"] = sent_today
             if sent_today is None:
                 print(f"⚠️  [{username}] could not verify today's send count — skipping to stay within the quota")
+                record(log_schema.SKIPPED_QUOTA_UNVERIFIED, reason="could not count today's sends")
                 continue
             if sent_today >= quota:
                 print(f"🚫 [{username}] daily quota reached ({sent_today}/{quota} per schedule) — skipping")
+                record(log_schema.SKIPPED_QUOTA, reason=f"{sent_today}/{quota} sent today")
                 continue
 
             if experiment_llm_model:
                 self.llm_service.override_model(experiment_llm_model)
 
-            # Task 6.1: derive experiment_type from dominant non-reactive heuristic weight
+            # experiment_type: the dominant non-reactive heuristic weight (descriptive only;
+            # the heuristic actually drawn for an attempt is `heuristic_selected`).
             non_reactive = {k: v for k, v in heuristic_weights.items() if k != "reactive" and v > 0}
             experiment_type = (
                 max(non_reactive, key=lambda k: non_reactive[k])
                 if non_reactive else "reactive"
             )
+            ctx["experiment_type"] = experiment_type
 
             # ── Probability-based heuristic selection ─────────────────────────
             selected = self._select_heuristic(heuristic_weights)
+            ctx["selected"] = selected
             print(f"\n🎲 [{username}] Selected heuristic: {selected}")
 
             if selected == "reactive":
                 print(f"🚫 [{username}] Reactive — skipping")
+                record(log_schema.REACTIVE, reason="control draw: no notification by design")
                 continue
 
             message, heuristic = self._run_selected_heuristic(
@@ -560,17 +597,20 @@ class ResearchService:
 
             if not message:
                 print(f"⏭️  [{username}] {selected} heuristic returned no message — skipping")
+                record(log_schema.HEURISTIC_FAILED, reason=f"{selected} returned no message")
                 continue
 
             print(f"\n👤 {username} [type:{experiment_type}] → [{selected}] {message['generated_message']}")
 
+            stage = "injection"
+            conversation_id = None
             try:
                 from core.models import UserContext
 
                 # ── CRITICAL ORDER: Inject FIRST, then create conversation ──
                 # The conversation creation reads user.agent.firstChatSentence,
                 # so we MUST inject the proactive message BEFORE creating the conversation.
-                
+
                 print(f"💉 [{username}] Injecting proactive message: {message['generated_message'][:50]}...")
                 injection_result = self.inject_prompt(
                     user_id,
@@ -581,22 +621,24 @@ class ResearchService:
                 if not injection_result:
                     results["injection_failed"] += 1
                     print(f"⚠️  inject_prompt failed for {username} — skipping")
+                    record(log_schema.INJECTION_FAILED, reason="inject_prompt returned False", message=message)
                     continue
-                
+
                 results["injected"] += 1
-                
+
                 # NOW create the conversation (it will use the injected firstChatSentence)
-                experiment_id_str = str(user.get("experimentId", ""))
+                stage = "conversation"
                 num_convs = int(user.get("numberOfConversations") or 0)
                 conversation_id = self._create_conversation(user_id, experiment_id_str, num_convs)
-                
+
                 if not conversation_id:
                     print(f"⚠️  Could not pre-create conversation for {username} — skipping")
                     results["fcm_failed"] += 1
+                    record(log_schema.CONVERSATION_FAILED, reason="conversations/create failed", message=message)
                     continue
-                
+
                 print(f"📝 [{username}] Created NEW conversation {conversation_id} with proactive opener as messageNumber: 1")
-                
+
                 # Update the user doc to link this conversation ID for context injection
                 if mongodb_client.connect():
                     mongodb_client.db[mongodb_client.users_collection].update_one(
@@ -617,6 +659,7 @@ class ResearchService:
                 # Re-reads the user doc from DB to catch any status change that
                 # occurred during heuristic/LLM processing (e.g. participant
                 # opted out after the cycle started).
+                stage = "gatekeeper"
                 try:
                     if mongodb_client.connect():
                         live_user = mongodb_client.db[
@@ -629,6 +672,8 @@ class ResearchService:
                         if not live_user or not live_user.get("isProactive", False):
                             print(f"🚫 [{username}] isProactive=False at dispatch — dropping FCM")
                             results["fcm_failed"] += 1
+                            record(log_schema.DROPPED_GATEKEEPER, reason="isProactive=false at dispatch",
+                                   message=message, conversation_id=conversation_id)
                             continue
                 except Exception as _gk_err:
                     print(f"⚠️  [{username}] Gatekeeper DB check failed ({_gk_err}) — proceeding")
@@ -637,6 +682,7 @@ class ResearchService:
                     except Exception:
                         pass
 
+                stage = "fcm"
                 notification_result = self.fcm_service.send_to_user(
                     user=UserContext(
                         user_id=user_id,
@@ -655,86 +701,78 @@ class ResearchService:
                     if heuristic:
                         heuristic.clear_after_send()
 
-                    self.log_proactive_event(
-                        cycle_id, user_id, message, "sent", notification_result,
-                        experiment_type=experiment_type,
-                        experiment_id=experiment_id_str,
-                        heuristic_weights=active_weights,
-                        llm_model=experiment_llm_model,
-                    )
+                    record(log_schema.SENT, message=message, notification_id=notification_result,
+                           conversation_id=conversation_id)
                 else:
                     results["fcm_failed"] += 1
                     print(f"❌ FCM failed for {username}")
+                    record(log_schema.FCM_FAILED, reason="FCM returned no message id",
+                           message=message, conversation_id=conversation_id)
 
             except Exception as e:
                 results["fcm_failed"] += 1
-                error_msg = str(e)
                 print(f"❌ Error processing user {username}: {e}")
+
+                failed_status = log_schema.FCM_FAILED if stage == "fcm" else log_schema.ERROR
+                record(failed_status, reason=f"{stage}: {type(e).__name__}: {e}",
+                       message=message, conversation_id=conversation_id)
 
                 if self._is_stale_token_error(e):
                     print(f"🗑️  Stale token detected for {username} — removing from DB")
                     self.clear_stale_fcm_token(user_id, username)
 
         return results
-    
+
     def log_proactive_event(
         self,
         cycle_id: str,
         user_id: str,
-        message: Dict,
+        message: Optional[Dict],
         status: str,
         notification_id: str = None,
         experiment_type: str = None,
         experiment_id: str = None,
         heuristic_weights: dict = None,
         llm_model: str = None,
+        reason: str = None,
+        conversation_id: str = None,
+        heuristic_selected: str = None,
+        daily_quota: int = None,
+        sent_today_before: int = None,
     ):
         """
-        Log a proactive notification event for research analysis.
-
-        Task 6.7: Extended log schema includes experiment_id, experiment_type,
-        heuristic_selected, was_fallback, memory_content, language,
-        heuristic_weights_snapshot, and llm_model for comprehensive thesis analysis.
-
-        Deducible metrics:
-          - Heuristic selection frequency (GROUP BY heuristic_selected)
-          - Cold-start rate (WHERE was_fallback = true)
-          - Notification volume per user per day (GROUP BY user_id, date(timestamp))
-          - Language distribution (GROUP BY language)
-          - LLM cost attribution (GROUP BY llm_model)
-          - Delivery success rate (WHERE status = "sent" / total)
+        Write one `proactive_logs` document for an attempt (any outcome, see services/log_schema.py).
+        Never raises: a logging problem must not stop notifications.
         """
         try:
             if not mongodb_client.connect():
                 print("❌ Could not connect to MongoDB for logging")
                 return
 
-            log_entry = {
-                "cycle_id":                   cycle_id,
-                "timestamp":                  datetime.now(timezone.utc),
-                "user_id":                    user_id,
-                "experiment_id":              experiment_id or "",
-                "experiment_type":            experiment_type or "",
-                "trigger_source":             message.get("trigger_source", "unknown"),
-                "heuristic_selected":         message.get("trigger_source", "unknown"),
-                "generated_message":          message["generated_message"],
-                "was_fallback":               message.get("was_fallback", False),
-                "memory_content":             message.get("memory_content", ""),
-                "language":                   message.get("language", "he"),
-                "topic_label":                message.get("topic_label", "general"),
-                "status":                     status,
-                "notification_id":            notification_id,
-                "heuristic_weights_snapshot": heuristic_weights or {},
-                "llm_model":                  llm_model or "",
-            }
-
-            mongodb_client.db["proactive_logs"].insert_one(log_entry)
+            entry = log_schema.build_log_entry(
+                cycle_id=cycle_id,
+                user_id=user_id,
+                status=status,
+                message=message,
+                reason=reason,
+                notification_id=notification_id,
+                conversation_id=conversation_id,
+                experiment_id=experiment_id,
+                experiment_type=experiment_type,
+                heuristic_selected=heuristic_selected,
+                heuristic_weights=heuristic_weights,
+                llm_model=llm_model,
+                llm_model_used=self.llm_service.model,
+                daily_quota=daily_quota,
+                sent_today_before=sent_today_before,
+            )
+            mongodb_client.db["proactive_logs"].insert_one(entry)
 
         except Exception as e:
             print(f"❌ Error logging proactive event: {e}")
         finally:
             mongodb_client.disconnect()
-    
+
     def run_full_proactive_cycle(self, experiment_id: Optional[str] = None) -> Dict:
         """
         Main orchestrator. Called by run_cycle.py and scheduler.py.

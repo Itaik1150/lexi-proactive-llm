@@ -25,6 +25,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | V1 | Daily limit could not be applied | ✅ | no extra setting: the schedule's own count (exact times / window counts / AI count) is now a hard per-day maximum |
 | V1b | Dashboard save wiped `defaultLanguage` | ✅ | found while fixing V1; save now keeps unknown keys |
 | R1 | Every job notified all experiments' users | ✅ | jobs are scoped to the experiment whose schedule fired them |
+| V2 | Only successful sends were logged; no funnel | ✅ | every attempt logged with status and reason; `conversation_id`, quota and model used stored; API stamps `opened_at` / `first_reply_at` |
 | S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
 | S2 | Push-token routes had no login | ✅ | `requireUser` middleware; id comes from the login cookie; response no longer returns the user record |
 | S4 | `/join` XSS and unvalidated writes | ✅ | id must be a real experiment (24 hex + exists), escaped, downloads rate-limited |
@@ -84,16 +85,16 @@ how many notifications a participant got. The dashboard already expresses the nu
 — the single place every send passes through, for all three modes — skips a participant whose sends since local midnight have reached it.
 The scheduler uses the same module, and tests check that the jobs it registers match the quota. If the database cannot be read the send is skipped rather than risked.
 *Also fixed (V1b):* the dashboard rebuilt `proactiveSettings` from scratch on every save, so `defaultLanguage` (and any key it does not edit) was deleted and Python fell back to English. The save now spreads the existing settings first.
-*Still open:* store the quota in force on each log row (part of V2).
+*Also done with V2:* the quota in force is stored on every log row (`daily_quota`, `sent_today_before`).
 
-### V2. Only successful sends are logged **[V]**
-`log_proactive_event` is called only inside `if notification_result:`. Failures, dropped sends, skipped users,
-"reactive" draws and exceptions leave **no row**. The docstring promises "delivery success rate = sent / total",
-which cannot be computed. The Sent → Opened → Replied funnel (sprint item 2.2) is not implemented anywhere:
-the Node server never writes to or reads `proactive_logs`.
-*Fix:* write one row per attempt with `status` ∈ `sent | fcm_failed | dropped_gatekeeper | conversation_failed | skipped_day | skipped_cap | reactive` and a `reason`.
-Add `opened_at` / `first_reply_at` by having Node update the row when the pre-created conversation is opened and replied to.
-Also store `conversation_id` — the log row currently has **no link to the conversation it created** (only `proactiveMemory.linked_conversation_id`, which is overwritten on every send), so joining a send to the participant's reply needs a timestamp-proximity guess ([how](DATA_AND_ANALYSIS.md#linking-a-send-to-its-conversation-today)).
+### V2. Only successful sends were logged **[V]** — ✅ fixed
+`log_proactive_event` used to run only inside `if notification_result:`, so failures, skips and control draws left no row, the docstring's
+"delivery success rate = sent / total" could not be computed, and the Sent → Opened → Replied funnel (sprint item 2.2) was not implemented.
+*Fix (done):* every attempt now writes exactly one row (`services/log_schema.py`) with `status` ∈ `sent · reactive · skipped_day · skipped_quota · skipped_quota_unverified · heuristic_failed · injection_failed · conversation_failed · dropped_gatekeeper · fcm_failed · error`,
+a `reason`, the **drawn** heuristic, `conversation_id`, `daily_quota` and `sent_today_before`, and `llm_model_used`.
+Fields that do not apply are `null` rather than a misleading default. The API stamps `opened_at` (first fetch of the conversation) and `first_reply_at` (first participant message) on `sent` rows.
+Tests drive the real send loop through every outcome and assert exactly one row each. See [`DATA_AND_ANALYSIS.md`](DATA_AND_ANALYSIS.md) for the schema and queries.
+*Still open:* `used_static_template` (V11), `temperature` (V10), memory id/age (V5), a code-version stamp; rolling back a failed send is V3.
 
 ### V3. Nothing is rolled back when a send fails after injection **[V]**
 `coordinated_send_and_inject` (1) overwrites the participant's `agent.firstChatSentence`, (2) pre-creates a conversation,
@@ -275,6 +276,6 @@ deep-linking straight into the pre-created conversation; live-editable configura
 |---|---|---|
 | **Today** | Rotate the Atlas password | S1 |
 | **This week** (small, high value) | `allowBackup=false` · allow-list WebView origin · debug-only cleartext · signed release build | S3 S6 |
-| **Before more participants** | Log every attempt · roll back failed sends · reset model per user · fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
+| **Before more participants** | roll back failed sends · reset model per user · fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
 | **Before the analysis** | Measure fallback rate · decouple memory building · align temperature/limits · timezone · contexts across conditions | V5 V7 V10 V11 V12 V13 |
 | **Hardening** | Separate worker + heartbeat · single Mongo client · per-experiment scheduling · tests · pin/update deps | R1–R4 R9 S11 |

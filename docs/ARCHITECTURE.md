@@ -61,7 +61,7 @@ Exactly which files are yours and which are upstream: [`UPSTREAM_DELTA.md`](UPST
    sentence and flags it `isProactiveOpener`.
 8. **Gatekeeper**: re-read `isProactive`; drop the send if the participant was switched off meanwhile.
 9. **Send FCM** with `conversationId` and `experimentId` in the data payload.
-10. **Log** one document to `proactive_logs` and call `heuristic.clear_after_send()`.
+10. **Log** and clean up. Every attempt — sends, skips, control draws and failures — writes one `proactive_logs` document with its outcome and reason; a successful send also calls `heuristic.clear_after_send()`. Later the API stamps `opened_at` and `first_reply_at` on the row when the participant opens and answers the conversation.
 
 The order 6 → 7 matters: the Node server reads the injected sentence while creating the conversation.
 Steps 6–8 are not rolled back if 9 fails (REVIEW V3).
@@ -128,7 +128,7 @@ All times are `Asia/Jerusalem`.
 | `experiments` | Node (dashboard) | `experimentFeatures.proactiveSettings` — see below |
 | `metadata_conversations` | Node | one per conversation; `userId`, `createdAt`, `lastMessageTimestamp`, `isFinished` |
 | `conversations` | Node | one document per message; `isProactiveOpener` on message 1 |
-| `proactive_logs` | Python | one document per **successful** send |
+| `proactive_logs` | Python (attempt), Node (`opened_at`, `first_reply_at`) | one document per **attempt**, any outcome |
 | `apk_sessions` | Node | join-link → IP matches |
 | `forms` | Node | pre/post questionnaires (unchanged upstream) |
 

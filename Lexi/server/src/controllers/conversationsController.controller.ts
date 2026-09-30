@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { conversationsService } from '../services/conversations.service';
+import { proactiveLogsService } from '../services/proactiveLogs.service';
 import { requestHandler } from '../utils/requestHandler';
 
 class ConvesationsController {
@@ -15,6 +16,7 @@ class ConvesationsController {
             // "consumed" — reset firstChatSentence back to the original greeting.
             if (message.role === 'user') {
                 this.resetProactivePromptOnInteraction(conversationId).catch(() => {});
+                proactiveLogsService.markReplied(conversationId).catch(() => {});
             }
 
             res.status(200).send(savedResponse);
@@ -59,6 +61,7 @@ class ConvesationsController {
 
             if (role === 'user') {
                 this.resetProactivePromptOnInteraction(conversationId).catch(() => {});
+                proactiveLogsService.markReplied(conversationId).catch(() => {});
             }
 
             closeStream(savedResponse);
@@ -124,6 +127,9 @@ class ConvesationsController {
         }
 
         const conversation = await conversationsService.getConversation(conversationId);
+
+        // Funnel: the participant's app has fetched the notification's conversation.
+        proactiveLogsService.markOpened(conversationId).catch(() => {});
         
         // Add debug logging to verify isProactiveOpener is being sent
         if (conversation.length > 0) {
