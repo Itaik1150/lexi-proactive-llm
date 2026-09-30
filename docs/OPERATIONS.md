@@ -47,6 +47,12 @@ python run_cycle.py
 python scheduler.py
 ```
 
+Unit tests (no database or network needed):
+
+```bash
+cd logic-python && python -m unittest discover -s tests -v
+```
+
 To try a send end to end you need a user document with `experimentId`, `fcmToken` (a real device token), `isProactive: true`,
 and an experiment with `proactiveSettings.enabled: true` and non-zero weights.
 

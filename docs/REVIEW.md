@@ -15,6 +15,23 @@ Nothing was changed in code. Only documentation and file layout changed (see [§
 
 ---
 
+## Progress tracker
+
+Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs you · ⬜ open**
+
+| ID | Item | Status | Note |
+|---|---|---|---|
+| S1 | Rotate the leaked Atlas password | 🟡 | only you can do this (Atlas → Database Access) |
+| V1 | Daily cap could not be set | ✅ | schema + types + dashboard field added |
+| V1b | Dashboard save wiped `defaultLanguage` | ✅ | found while fixing V1; save now keeps unknown keys |
+| S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
+| S2 S3 S4 S5 S6 | Auth on token routes, WebView allow-list, `/join` validation, CORS, Android hardening | ⬜ | |
+| V2 V3 V4 V6 R5 V9 | Log every attempt, roll back failed sends, reset model, re-scan conversations, one reset path, confirm join | ⬜ | |
+| V5 V7 V10–V13 | Fidelity, context asymmetry, LLM confounds, timezone | ⬜ | |
+| R1–R4 R9 S11 | Scheduler per experiment, worker + heartbeat, single Mongo client, tests, deps | ⬜ | |
+
+---
+
 ## Verdict
 
 The project is a **coherent, ambitious research prototype with a sound core idea**: a probability-weighted
@@ -55,13 +72,15 @@ Also in history: a whole `venv/` folder (3,600 files) from the initial commit. H
 
 These matter most for the thesis. Ordered by how much they can change your conclusions.
 
-### V1. The daily notification cap can never be set **[V]**
+### V1. The daily notification cap can never be set **[V]** — ✅ fixed
 Python enforces `proactiveSettings.maxDailyNotifications` (`research_service.py:197`, `:1034`; `scheduler.py:259`).
 That key does not exist in the Mongoose schema (`ExperimentsModel.ts`), the TypeScript types, or the React dashboard —
 `grep maxDailyNotifications Lexi/` returns nothing. Mongoose strict mode drops unknown keys on save, so even a
 hand-edited value is lost the next time anyone saves the experiment.
 **Result: no cap is ever applied.** `CURRENT_SPRINT` item 1.4 (still unchecked) was right to worry.
-*Fix:* add the field to the schema, types and `ProactiveSettingsModal`, and log the cap actually in force with each send.
+*Fix (done):* the field is now in the schema, both type files and `ProactiveSettingsModal` (0 = no limit). Still open: log the cap in force with each send (part of V2).
+*Also found (V1b):* the modal rebuilt `proactiveSettings` from scratch on every save, so `defaultLanguage` (and any other key it does not edit) was deleted; Python then fell back to English. The save now spreads the existing settings first.
+*After deploying:* open each experiment in the dashboard, set the limit and save — existing experiments have no value stored, which means "no limit".
 
 ### V2. Only successful sends are logged **[V]**
 `log_proactive_event` is called only inside `if notification_result:`. Failures, dropped sends, skipped users,
@@ -166,7 +185,7 @@ naive datetimes are read as UTC. Skew is 2–3 h against a 6–24 h window. *Fix
 | S5 | **Med** | CORS with `credentials: true` accepts any origin that *contains* your project name and ends in `.vercel.app` — anyone can register such a project. A rejected origin returns a 500 stack trace. A LAN IP is left in the allow-list. **[R]** | `server.ts` | exact-match regex on your Vercel slug |
 | S6 | **Med** | Android: `allowBackup="true"` with empty rules (auth cookie + prefs go to cloud backup); `usesCleartextTraffic="true"`; **debug** APK distributed; minify off; notification text visible on lock screen (emotional content!); wake-lock acquired and released immediately; FCM token and user id written to logcat. **[V]** manifest, **[R]** rest | `AndroidManifest.xml`, `build.gradle.kts`, `LexiMessagingService.kt`, `AndroidBridge.kt` | `allowBackup=false`, debug-only cleartext config, signed release build, `VISIBILITY_PRIVATE` |
 | S7 | **Med** | Raw IPs kept in `apk_sessions` with no TTL; `matchSession` logs whole session documents and other users' IPs; the landing page says "fully anonymous". Server logs user message text ("MESSAGES SENT TO LLM"). **[R]** | `joinController.ts`, `experimentsController`, `conversations.service.ts` | 24 h TTL index; delete those logs; **check wording against your ethics approval** |
-| S8 | **Med** | Stale-token cleanup treats any error containing "not found" as "delete this token and set `isProactive=false`". `fcm_service.py` itself says "not found" also means *wrong Firebase project*. A misconfigured deploy would silently opt **every** participant out. **[V]** | `research_service.py:640-646` | catch `messaging.UnregisteredError` / `SenderIdMismatchError` only |
+| S8 ✅ | **Med** | Stale-token cleanup treats any error containing "not found" as "delete this token and set `isProactive=false`". `fcm_service.py` itself says "not found" also means *wrong Firebase project*. A misconfigured deploy would silently opt **every** participant out. **[V]** | `research_service.py` (`_is_stale_token_error`) | **fixed:** only `UnregisteredError` and a malformed-token `InvalidArgumentError` count; `SenderIdMismatchError` deliberately excluded (a wrong service account looks the same) |
 | S9 | **Low–Med** | `PUT /experiments` and other admin routes appear to have no `isAdmin` check (upstream pattern); JWT has no `expiresIn` and is re-issued on every `/user`. **[R]**, suspected | `experimentsRouter`, `users.service.ts` | auth middleware + expiry |
 | S10 | **Low–Med** | `get_all_proactive_users` sets `isProactive=true` for every user with a token and no flag. Fine operationally; check it matches how consent is recorded. **[V]** | `research_service.py:118` | confirm with ethics text |
 | S11 | Low | `requests==2.31.0` has a known CVE (fixed in 2.32); all Python deps are pinned to 2023 versions. **[V]** | `requirements.txt` | bump |

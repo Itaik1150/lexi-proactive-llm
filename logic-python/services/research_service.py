@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from bson import ObjectId
 import requests as http_requests
+from firebase_admin import exceptions as fb_exceptions
+from firebase_admin import messaging as fcm_messaging
 
 LEXI_SERVER_URL  = os.getenv("LEXI_SERVER_URL", "https://lexi-server-1rx9.onrender.com")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://master-thesis-2026-2027-code-base.vercel.app")
@@ -225,6 +227,24 @@ class ResearchService:
         print(f"👥 {len(eligible_users)} eligible out of {len(users)} proactive users")
         return eligible_users
     
+    @staticmethod
+    def _is_stale_token_error(exc: Exception) -> bool:
+        """
+        True only when Firebase says THIS device token is dead (app uninstalled, token
+        expired, or the token string is malformed). Anything else -- wrong project,
+        bad service account, network, quota -- says nothing about the participant's
+        token and must not opt them out.
+
+        Deliberately not matched: SenderIdMismatchError (also what a wrong service
+        account looks like, which would wipe every participant) and any error whose
+        text merely contains "not found".
+        """
+        if isinstance(exc, fcm_messaging.UnregisteredError):
+            return True
+        if isinstance(exc, fb_exceptions.InvalidArgumentError):
+            return "registration token" in str(exc).lower()
+        return False
+
     def clear_stale_fcm_token(self, user_id: str, username: str):
         """Remove an invalid FCM token from MongoDB so it isn't retried."""
         try:
@@ -637,11 +657,7 @@ class ResearchService:
                 error_msg = str(e)
                 print(f"❌ Error processing user {username}: {e}")
 
-                stale_signals = ("notregistered", "not registered", "not found",
-                                 "registration-token-not-registered",
-                                 "invalid-registration-token",
-                                 "invalid registration token")
-                if any(s in error_msg.lower() for s in stale_signals):
+                if self._is_stale_token_error(e):
                     print(f"🗑️  Stale token detected for {username} — removing from DB")
                     self.clear_stale_fcm_token(user_id, username)
 
