@@ -1,6 +1,6 @@
 # Lexi — Proactive Conversational Agent
 
-**Master's thesis research platform · 2026–2027**
+**Master's thesis research platform · 2025–2027**
 
 A full-stack system for studying **AI-initiated conversations**. It decides *when* to contact a participant,
 chooses *what kind of memory* the message should draw on, sends a push notification to their phone,
