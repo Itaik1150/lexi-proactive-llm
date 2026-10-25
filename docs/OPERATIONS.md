@@ -78,6 +78,12 @@ See the runbook.
 
 ## 5. Runbook during a study
 
+**Render plan.** The scheduler runs inside the `lexi-server` web service, so that service must be on an **always-on paid plan** (Starter or higher). On the free plan the service sleeps after about 15 minutes without web traffic and no scheduled notification is sent while it sleeps (found 25 Oct 2026, REVIEW R2a). Check the plan in the Render dashboard before a study starts.
+
+**Every deploy restarts the scheduler.** Anything pushed to `main` redeploys the service, and the scheduler's job list lives in memory. In `ai_agent` mode the day's times are planned only at 00:01, so avoid pushing during study hours until REVIEW R2 is fixed.
+
+**Participants reachable.** A participant only receives notifications if they have logged in once in the current app (that registers their phone). Before a study, check how many participants have a push token and `isProactive = true`.
+
 **Daily**
 - Render logs contain `💓 Scheduler heartbeat` every 30 minutes. No heartbeat ⇒ the scheduler is down; restart the service.
 - After a redeploy, if any experiment uses `ai_agent` scheduling and it is past 00:01, today's planned times are lost.
