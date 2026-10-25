@@ -78,11 +78,13 @@ the base class appends the JSON schema and output rules (`_safe_memory_prompt`, 
 
 | Heuristic | Memory it builds (`proactiveMemory.*`) | Fires when | Otherwise |
 |---|---|---|---|
-| **Affective** | `emotional_memories[]` `{memory_id, content, affective_score 1–10, conversationId, timestamp_iso, used}`; `conversationSummaries[]` (rolling 30, at user root) | an unused memory younger than 72 h exists; highest score wins and is marked `used` immediately | warm "listening ear" invitation (`was_fallback`) |
-| **Temporal** | `future_mentions[]` `{text, when_iso, conversationId}`; `fired_temporal_mentions[]` | a mention's `when_iso` is 6–24 h ahead and not yet fired | "anything exciting coming up?" (`was_fallback`) |
-| **Behavioural gap** | `open_intents[]` `{intent, stated_at, checked, conversationId}`; `pending_gap_followup`; `gap_scanned_conversation_ids[]` | an intent is 24–48 h old and the LLM judges the user's recent messages give no sign of follow-through | "how are your plans going?" (`was_fallback`) |
+| **Affective** | `emotional_memories[]` `{memory_id, content, affective_score 1–10, conversationId, timestamp_iso, used}`; `conversationSummaries[]` (rolling 30, at user root); `affective_scan_progress{}` | an unused memory younger than 72 h exists; highest score wins and is marked `used` immediately | warm "listening ear" invitation (`was_fallback`) |
+| **Temporal** | `future_mentions[]` `{text, when_iso, conversationId}`; `fired_temporal_mentions[]`; `temporal_scan_progress{}` | a mention's `when_iso` is 6–24 h ahead and not yet fired | "anything exciting coming up?" (`was_fallback`) |
+| **Behavioural gap** | `open_intents[]` `{intent, stated_at, checked, conversationId}`; `pending_gap_followup`; `gap_scan_progress{}` | an intent is 24–48 h old and the LLM judges the user's recent messages give no sign of follow-through | "how are your plans going?" (`was_fallback`) |
 | **Generic** | none (only language detection) | always | — (control; never a "fallback") |
 | *Reactive* | — | weight draw | nothing is sent |
+
+**Memory building is incremental.** Each heuristic keeps, per conversation, the highest participant message number it has analysed (`*_scan_progress`). A conversation is analysed again only for messages written since, an empty conversation waits for the participant's reply, and a failed extraction is retried next cycle.
 
 **Language cascade:** `proactiveMemory.preferred_language` → `user.language` → experiment `defaultLanguage` → `"en"`.
 Detection is character-based: > 15 % Hebrew letters ⇒ Hebrew, otherwise English.

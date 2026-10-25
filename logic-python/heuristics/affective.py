@@ -29,6 +29,7 @@ from typing import Optional
 from bson import ObjectId as _ObjectId
 
 from heuristics.base_heuristic import BaseHeuristic
+from services import scan_progress
 
 
 class AffectiveHeuristic(BaseHeuristic):
@@ -89,73 +90,72 @@ class AffectiveHeuristic(BaseHeuristic):
     )
 
     _MEMORY_EXPIRY_HOURS: int = 72
-    _CONV_SCAN_LIMIT: int = 3
+    _CONV_SCAN_LIMIT: int = 3   # conversations analysed per cycle (bounds LLM cost)
+    _CONV_LOOKBACK: int = 10    # newest conversations checked for unanalysed participant messages
 
     # memory_id marked `used` by the current get_proactive_message() call (None until then).
     _selected_memory_id: Optional[str] = None
 
+    @staticmethod
+    def _score(value) -> int:
+        """1-10; anything the LLM returns that is not a number (e.g. "7/10") counts as 1 instead of failing the whole conversation."""
+        try:
+            return max(1, min(10, int(value or 1)))
+        except (TypeError, ValueError):
+            return 1
+
     def create_memory(self) -> None:
         """
-        Scan conversations NOT yet in affective_scanned_conversation_ids.
-        Extract emotional_memories via LLM and push new ones to MongoDB.
-        Mirrors the gap_scanned_conversation_ids pattern (Task 6.6): once a
-        conversation is processed it is never re-analyzed, eliminating both the
-        sliding-window miss bug and duplicate-extraction bug.
+        Extract emotional memories from participant messages that have not been analysed yet.
+
+        Progress is tracked per conversation (proactiveMemory.affective_scan_progress =
+        {conversationId: highest participant messageNumber analysed}), see services/scan_progress.py.
+        A conversation that keeps growing is analysed again for its NEW messages only, and one with
+        no participant messages yet (e.g. the opener created for a notification) is picked up as soon
+        as the participant replies. Progress advances only after a successful extraction.
         """
         memory = self._memory
-        scanned_ids: set = set(memory.get("affective_scanned_conversation_ids") or [])
-        conversations_to_process: list = []  # [(conv_id, texts), ...]
-        newly_scanned_ids: list = []
+        progress: dict = dict(memory.get("affective_scan_progress") or {})
+        legacy_ids: set = set(memory.get("affective_scanned_conversation_ids") or [])
+        conversations_to_process: list = []  # [(conv_id, [new messages]), ...]
+        progress_updates: dict = {}          # conv_id -> highest messageNumber now considered analysed
 
-        # ── Phase A: Read messages from UNANALYZED conversations only ─────────
+        # ── Phase A: find conversations with participant messages not analysed yet ──
         try:
             if not self.mongodb_client.connect():
                 return
 
-            # Build an exclusion query so MongoDB returns only unscanned convs.
-            scanned_oids = []
-            for cid in scanned_ids:
-                try:
-                    scanned_oids.append(_ObjectId(cid))
-                except Exception:
-                    pass
-            query: dict = {"userId": self.user_id}
-            if scanned_oids:
-                query["_id"] = {"$nin": scanned_oids}
-
             recent_metas = list(self.mongodb_client.db["metadata_conversations"].find(
-                query,
+                {"userId": self.user_id},
                 sort=[("createdAt", -1)],
-                limit=self._CONV_SCAN_LIMIT,
+                limit=self._CONV_LOOKBACK,
             ))
-            if not recent_metas:
-                return
             for meta in recent_metas:
                 conv_id = str(meta["_id"])
                 raw = list(self.mongodb_client.db["conversations"].find(
                     {"conversationId": conv_id, "role": "user"},
                     sort=[("messageNumber", 1)],
                 ))
-                texts = [m.get("content", "") for m in raw if m.get("content")]
-                # Store conversation ID WITH its texts to maintain the link
-                conversations_to_process.append((conv_id, texts))
-                # Mark as scanned even if empty — avoids re-fetching every cycle.
-                # Conversations with future messages will appear as a NEW conv doc.
-                newly_scanned_ids.append(conv_id)
+                new_msgs, migrate_to = scan_progress.plan_conversation(
+                    conv_id, scan_progress.user_messages(raw), progress, legacy_ids,
+                )
+                if migrate_to is not None:
+                    progress_updates[conv_id] = migrate_to  # scanned under the old scheme: do not redo
+                    continue
+                if new_msgs and len(conversations_to_process) < self._CONV_SCAN_LIMIT:
+                    conversations_to_process.append((conv_id, new_msgs))
         except Exception as e:
             print(f"⚠️  AffectiveHeuristic.create_memory read ({self.username}): {e}")
             return
         finally:
             self.mongodb_client.disconnect()
 
-        if not newly_scanned_ids:
+        if not conversations_to_process and not progress_updates:
             return  # Nothing new to process
 
         # Task 6.3: detect language from the messages collected above.
         _detected_lang = None
-        all_texts = []
-        for _, texts in conversations_to_process:
-            all_texts.extend(texts)
+        all_texts = [m["text"] for _, msgs in conversations_to_process for m in msgs]
         if all_texts:
             _detected_lang = self._detect_language(all_texts)
             if _detected_lang:
@@ -165,12 +165,13 @@ class AffectiveHeuristic(BaseHeuristic):
         new_memories: list = []
         new_summaries: list = []  # Dual-Tier Memory: collect summaries
         today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        
-        for conv_id, texts in conversations_to_process:
-            if not texts:
-                continue
-                
-            joined = "\n".join(f"- {m}" for m in texts[-20:] if m)
+        already_extracted = {
+            (m.get("conversationId"), scan_progress.normalize(m.get("content")))
+            for m in (memory.get("emotional_memories") or [])
+        }
+
+        for conv_id, new_msgs in conversations_to_process:
+            joined = "\n".join(f"- {m['text']}" for m in new_msgs[-20:])
             system = self._safe_memory_prompt(
                 self.memory_prompt.replace("{today_iso}", today_iso)
             )
@@ -182,59 +183,66 @@ class AffectiveHeuristic(BaseHeuristic):
                     max_tokens=600,
                 )
                 parsed = json.loads(raw_text)
-                
+
                 # Extract emotional memories (Deep Dive tier)
                 for item in (parsed.get("emotional_memories") or []):
                     content = (item.get("content") or "").strip()
-                    if content:
+                    key = (conv_id, scan_progress.normalize(content))
+                    if content and key not in already_extracted:
+                        already_extracted.add(key)
                         new_memories.append({
                             "memory_id":       str(_ObjectId()),  # Unique ID for surgical mark-as-used
                             "content":         content,
-                            "affective_score": max(1, min(10, int(item.get("affective_score") or 1))),
-                            "conversationId":  conv_id,  # ✅ FIXED: Now correctly links to THIS conversation
+                            "affective_score": self._score(item.get("affective_score")),
+                            "conversationId":  conv_id,  # links the memory to THIS conversation
                             "timestamp_iso":   today_iso,  # Added automatically: extraction time
                             "used":            False,  # Added automatically: tracking field
                         })
                         print(f"💛 [{self.username}] Extracted memory from conversation {conv_id[:8]}: '{content[:50]}'")
-                
+
                 # Extract conversation summary (Peripheral Awareness tier)
                 summary = (parsed.get("conversation_summary") or "").strip()
                 if summary:
                     new_summaries.append(summary)
                     print(f"📝 [{self.username}] Generated summary for conversation {conv_id[:8]}: '{summary[:60]}'")
-                    
+
+                # Only a successful extraction advances progress; a failure is retried next cycle.
+                progress_updates[conv_id] = scan_progress.last_number(new_msgs)
+
             except Exception as e:
                 print(f"⚠️  AffectiveHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
 
         # ── Phase C: Write to MongoDB ──────────────────────────────────────────
+        set_fields: dict = {
+            scan_progress.progress_path("affective_scan_progress", cid): n
+            for cid, n in progress_updates.items()
+        }
+        if _detected_lang:
+            set_fields["proactiveMemory.preferred_language"] = _detected_lang
+        update: dict = {}
+        if set_fields:
+            update["$set"] = set_fields
+
+        # Push both emotional memories and summaries
+        if new_memories or new_summaries:
+            update["$push"] = {}
+            if new_memories:
+                update["$push"]["proactiveMemory.emotional_memories"] = {"$each": new_memories}
+                print(f"💛 [{self.username}] Extracted {len(new_memories)} new emotional memory(ies)")
+
+            # Dual-Tier Memory: push summaries (keep last 30)
+            if new_summaries:
+                update["$push"]["conversationSummaries"] = {
+                    "$each": new_summaries,
+                    "$slice": -30  # Keep only the last 30 summaries
+                }
+                print(f"📝 [{self.username}] Added {len(new_summaries)} conversation summary(ies) (rolling window of 30)")
+
+        if not update:
+            return
         try:
             if not self.mongodb_client.connect():
                 return
-            update: dict = {
-                "$addToSet": {
-                    "proactiveMemory.affective_scanned_conversation_ids": {
-                        "$each": newly_scanned_ids
-                    }
-                }
-            }
-            if _detected_lang:
-                update["$set"] = {"proactiveMemory.preferred_language": _detected_lang}
-            
-            # Push both emotional memories and summaries
-            if new_memories or new_summaries:
-                update["$push"] = {}
-                if new_memories:
-                    update["$push"]["proactiveMemory.emotional_memories"] = {"$each": new_memories}
-                    print(f"💛 [{self.username}] Extracted {len(new_memories)} new emotional memory(ies)")
-                
-                # Dual-Tier Memory: push summaries (keep last 30)
-                if new_summaries:
-                    update["$push"]["conversationSummaries"] = {
-                        "$each": new_summaries,
-                        "$slice": -30  # Keep only the last 30 summaries
-                    }
-                    print(f"📝 [{self.username}] Added {len(new_summaries)} conversation summary(ies) (rolling window of 30)")
-            
             self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
                 {"_id": _ObjectId(self.user_id)}, update
             )

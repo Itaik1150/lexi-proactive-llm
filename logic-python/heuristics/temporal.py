@@ -29,6 +29,7 @@ from typing import Optional
 from bson import ObjectId as _ObjectId
 
 from heuristics.base_heuristic import BaseHeuristic
+from services import scan_progress
 
 
 class TemporalHeuristic(BaseHeuristic):
@@ -94,13 +95,20 @@ class TemporalHeuristic(BaseHeuristic):
 
     def create_memory(self) -> None:
         """
-        Extract future_mentions from recent conversations and merge them into
-        proactiveMemory.future_mentions, deduplicating by text.
-        Already-fired mentions are not re-added.
-        """
-        conversations_to_process: list = []  # [(conv_id, texts), ...]
+        Extract future_mentions from participant messages that have not been analysed yet and merge
+        them into proactiveMemory.future_mentions, deduplicating by text. Already-fired mentions are
+        not re-added.
 
-        # ── Phase A: Read messages ─────────────────────────────────────────────
+        Progress is tracked per conversation (proactiveMemory.temporal_scan_progress =
+        {conversationId: highest participant messageNumber analysed}), see services/scan_progress.py,
+        so each message is analysed once instead of re-reading the newest conversations every cycle.
+        Progress advances only after a successful extraction.
+        """
+        progress: dict = dict((self._memory.get("temporal_scan_progress")) or {})
+        conversations_to_process: list = []  # [(conv_id, [new messages]), ...]
+        progress_updates: dict = {}          # conv_id -> highest messageNumber now considered analysed
+
+        # ── Phase A: Read messages not analysed yet ────────────────────────────
         try:
             if not self.mongodb_client.connect():
                 return
@@ -109,16 +117,17 @@ class TemporalHeuristic(BaseHeuristic):
                 sort=[("createdAt", -1)],
                 limit=self._CONV_SCAN_LIMIT,
             ))
-            if not recent_metas:
-                return
             for meta in recent_metas:
                 conv_id = str(meta["_id"])
                 raw = list(self.mongodb_client.db["conversations"].find(
                     {"conversationId": conv_id, "role": "user"},
                     sort=[("messageNumber", 1)],
                 ))
-                texts = [m.get("content", "") for m in raw if m.get("content")]
-                conversations_to_process.append((conv_id, texts))
+                new_msgs, _ = scan_progress.plan_conversation(
+                    conv_id, scan_progress.user_messages(raw), progress,
+                )
+                if new_msgs:
+                    conversations_to_process.append((conv_id, new_msgs))
         except Exception as e:
             print(f"⚠️  TemporalHeuristic.create_memory read ({self.username}): {e}")
             return
@@ -131,9 +140,7 @@ class TemporalHeuristic(BaseHeuristic):
         # Task 6.3: detect language from collected messages (character analysis,
         # no extra DB call). Applied to self.language immediately; persisted in
         # Phase C below so future cycles read from preferred_language (cascade lvl 1).
-        all_texts = []
-        for _, texts in conversations_to_process:
-            all_texts.extend(texts)
+        all_texts = [m["text"] for _, msgs in conversations_to_process for m in msgs]
         _detected_lang = self._detect_language(all_texts)
         if _detected_lang:
             self.language = _detected_lang
@@ -141,12 +148,9 @@ class TemporalHeuristic(BaseHeuristic):
         # ── Phase B: LLM extraction per conversation ───────────────────────────
         today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         new_mentions = []
-        
-        for conv_id, texts in conversations_to_process:
-            if not texts:
-                continue
-                
-            joined = "\n".join(f"- {m}" for m in texts[-40:] if m)
+
+        for conv_id, new_msgs in conversations_to_process:
+            joined = "\n".join(f"- {m['text']}" for m in new_msgs[-40:])
             # {today_iso} lives in MEMORY_SCHEMA; substitute on the fully assembled prompt.
             system = self._safe_memory_prompt(self.memory_prompt).replace("{today_iso}", today_iso)
 
@@ -165,17 +169,19 @@ class TemporalHeuristic(BaseHeuristic):
                             new_mentions.append({
                                 "text":            text_val,
                                 "when_iso":        item.get("when_iso"),
-                                "conversationId":  conv_id,  # ✅ FIXED: Now correctly links to THIS conversation
+                                "conversationId":  conv_id,  # links the mention to THIS conversation
                                 "timestamp_iso":   today_iso,  # Added automatically: extraction time
                             })
                             print(f"⏰ [{self.username}] Extracted future mention from conversation {conv_id[:8]}: '{text_val[:50]}'")
+                # Only a successful extraction advances progress; a failure is retried next cycle.
+                progress_updates[conv_id] = scan_progress.last_number(new_msgs)
             except Exception as e:
                 print(f"⚠️  TemporalHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
 
         # ── Phase C: Merge into MongoDB ────────────────────────────────────────
         # Runs even when no new mentions are found so that the detected language
-        # is always persisted to proactiveMemory.preferred_language.
-        if not new_mentions and not _detected_lang:
+        # and the scan progress are always persisted.
+        if not new_mentions and not _detected_lang and not progress_updates:
             return
 
         try:
@@ -200,9 +206,15 @@ class TemporalHeuristic(BaseHeuristic):
                     and self._make_key(m["text"], m.get("when_iso") or "") not in fired_keys
                 ]
 
-            update_doc: dict = {}
+            set_fields: dict = {
+                scan_progress.progress_path("temporal_scan_progress", cid): n
+                for cid, n in progress_updates.items()
+            }
             if _detected_lang:
-                update_doc["$set"] = {"proactiveMemory.preferred_language": _detected_lang}
+                set_fields["proactiveMemory.preferred_language"] = _detected_lang
+            update_doc: dict = {}
+            if set_fields:
+                update_doc["$set"] = set_fields
             if to_add:
                 update_doc["$push"] = {
                     "proactiveMemory.future_mentions": {"$each": to_add}

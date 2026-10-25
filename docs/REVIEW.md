@@ -28,6 +28,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | V2 | Only successful sends were logged; no funnel | ✅ | every attempt logged with status and reason; `conversation_id`, quota and model used stored; API stamps `opened_at` / `first_reply_at` |
 | V3 | Failed sends left an opener, a phantom conversation and a consumed memory behind | ✅ | snapshot before injecting; full rollback on failure; gatekeeper moved ahead of conversation creation |
 | V4 | Model leaked between experiments; log named the wrong model | ✅ | model selected per participant; `llm_model_used` logged |
+| V6 | Conversations scanned once; later replies (incl. the notification conversation) missed | ✅ | per-conversation message progress; only new messages analysed; failures retried |
 | S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
 | S2 | Push-token routes had no login | ✅ | `requireUser` middleware; id comes from the login cookie; response no longer returns the user record |
 | S4 | `/join` XSS and unvalidated writes | ✅ | id must be a real experiment (24 hex + exists), escaped, downloads rate-limited |
@@ -133,13 +134,20 @@ compare are not the conditions you defined.
 message, not extraction time; (d) choose among heuristics that currently have material, or declare fallback part of the
 treatment and analyse intention-to-treat.
 
-### V6. Conversations are scanned once and never again **[V]**
-Affective and Gap mark a conversation as scanned after the first pass — even if it was empty. Consequences:
-an ongoing chat analysed at message 3 never has messages 4+ read; and the **pre-created proactive conversation is
-empty of user messages when the next cycle runs**, so it is marked scanned and the participant's later reply in exactly
-that conversation is never analysed. (The comment "conversations with future messages will appear as a NEW conv doc" is wrong.)
-Temporal has the opposite problem: it re-scans the newest 5 conversations every time (extra LLM cost, unbounded `future_mentions`).
-*Fix:* store `{conversationId → last scanned messageNumber}` and rescan when it grows.
+### V6. Conversations were scanned once and never again **[V]** — ✅ fixed
+Affective and Gap marked a conversation as scanned after the first pass, even if it was empty. So an ongoing chat analysed at message 3 never had
+messages 4+ read, and the **pre-created notification conversation has no participant messages when the next cycle runs**, so it was marked scanned
+and the participant's later reply in exactly that conversation was never analysed. Failed LLM calls were also marked scanned, losing that data for good.
+Temporal had the opposite problem: it re-read its newest 5 conversations on every cycle (cost, and `future_mentions` growth).
+*Fix (done):* every memory-building heuristic now tracks progress **per conversation** as the highest participant `messageNumber` analysed
+(`proactiveMemory.affective_scan_progress`, `gap_scan_progress`, `temporal_scan_progress`; `services/scan_progress.py`).
+A conversation that grew is analysed again for its **new** messages only; one with no participant messages yet stays pending until the participant replies;
+progress advances only after a successful extraction, so a failed LLM call is retried next cycle. Conversations the old scheme had already scanned
+(`*_scanned_conversation_ids`) are migrated on first sight without re-extracting, to avoid duplicate memories. Affective also skips a memory it already extracted
+for that conversation and no longer loses a whole conversation to a malformed score such as "7/10". At most 3 conversations (5 for Temporal) are analysed per cycle,
+newest first; the rest wait for the next cycle.
+*Side effect to know:* conversation summaries (Affective) are now produced per analysed batch of new messages, so a long conversation can yield several summaries in the rolling window of 30.
+*Limit:* a conversation that was in the old scheme and grew *before* this deployment keeps the messages it had at migration as "already analysed".
 
 ### V7. Only the Affective condition gives the chat model its source context **[V]**
 `research_service` passes `heuristic.linked_memory_id`; only Affective sets it. Node's `getProactiveContext`
@@ -282,6 +290,6 @@ deep-linking straight into the pre-created conversation; live-editable configura
 |---|---|---|
 | **Today** | Rotate the Atlas password | S1 |
 | **This week** (small, high value) | `allowBackup=false` · allow-list WebView origin · debug-only cleartext · signed release build | S3 S6 |
-| **Before more participants** | fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
+| **Before more participants** | one opener-reset path · confirm join with the participant | R5 V9 |
 | **Before the analysis** | Measure fallback rate · decouple memory building · align temperature/limits · timezone · contexts across conditions | V5 V7 V10 V11 V12 V13 |
 | **Hardening** | Separate worker + heartbeat · single Mongo client · per-experiment scheduling · tests · pin/update deps | R1–R4 R9 S11 |
