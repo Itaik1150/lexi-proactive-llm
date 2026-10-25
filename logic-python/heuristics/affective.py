@@ -91,6 +91,9 @@ class AffectiveHeuristic(BaseHeuristic):
     _MEMORY_EXPIRY_HOURS: int = 72
     _CONV_SCAN_LIMIT: int = 3
 
+    # memory_id marked `used` by the current get_proactive_message() call (None until then).
+    _selected_memory_id: Optional[str] = None
+
     def create_memory(self) -> None:
         """
         Scan conversations NOT yet in affective_scanned_conversation_ids.
@@ -318,6 +321,7 @@ class AffectiveHeuristic(BaseHeuristic):
                             {"$set": {"proactiveMemory.emotional_memories.$[elem].used": True}},
                             array_filters=[{"elem.memory_id": memory_id}],
                         )
+                        self._selected_memory_id = memory_id
                     else:
                         # Legacy fallback: match by content for pre-memory_id memories
                         self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
@@ -376,6 +380,31 @@ class AffectiveHeuristic(BaseHeuristic):
                 static_fallback=fallback,
                 user_content=uc,
             )
+
+    def undo_selection(self) -> bool:
+        """
+        The memory is marked `used` the moment it is selected. If the send then fails, give it back
+        so the participant still gets a message based on it next time.
+        """
+        memory_id = self._selected_memory_id
+        if not memory_id:
+            return False
+        try:
+            if not self.mongodb_client.connect():
+                return False
+            self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
+                {"_id": _ObjectId(self.user_id)},
+                {"$set": {"proactiveMemory.emotional_memories.$[elem].used": False}},
+                array_filters=[{"elem.memory_id": memory_id}],
+            )
+            self._selected_memory_id = None
+            print(f"↩️  [{self.username}] Emotional memory {memory_id[:8]} un-used after a failed send")
+            return True
+        except Exception as e:
+            print(f"⚠️  AffectiveHeuristic.undo_selection ({self.username}): {e}")
+            return False
+        finally:
+            self.mongodb_client.disconnect()
 
     # No clear_after_send() override needed: the emotional memory is already
     # marked used the moment it is selected in get_proactive_message(), so

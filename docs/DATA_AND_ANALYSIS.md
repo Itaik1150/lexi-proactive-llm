@@ -38,7 +38,7 @@ That gives you real denominators: how often participants were reached, skipped, 
 | `user_id` | string | `users._id` as text | |
 | `experiment_id` | string | the participant's experiment | |
 | `status` | string | see above | |
-| `reason` | string \| null | why, for skips and failures (max 300 chars) | |
+| `reason` | string \| null | why, for skips and failures (max 300 chars) | failed sends end with `\| rolled back: …` listing what was undone (greeting restored, conversation discarded, memory un-used) |
 | `heuristic_selected` (= `trigger_source`) | string \| null | the heuristic **drawn** for this attempt: `affective`, `temporal`, `behaviouralGap`, `generic`, or `reactive` | `null` for outcomes before the draw (`skipped_*`) |
 | `experiment_type` | string | the heuristic with the largest weight in the experiment | **not** the condition of this attempt — use `heuristic_selected` |
 | `generated_message` | string | the exact notification text | `""` when none was generated |

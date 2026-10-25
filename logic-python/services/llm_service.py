@@ -34,8 +34,27 @@ class ProactiveLogic:
             if not self.api_key:
                 raise ValueError("OPENAI_API_KEY not found in environment variables")
 
+        # Remembered so a per-experiment override can be undone for the next participant.
+        self._default_provider = self.provider
+        self._default_model    = self.model
+
         print(f"🤖 LLM engine: {self.provider.upper()} / {self.model}")
         self._log_api_key_status()
+
+    def use_model(self, model=None):
+        """
+        Select the model for the next calls: the experiment's `model`, or the environment
+        default (LLM_PROVIDER / LLM_MODEL) when the experiment sets none.
+
+        Call this for EVERY participant. override_model() alone leaves the previous
+        participant's model active, so one experiment's choice would leak into others.
+        """
+        model = (model or "").strip()
+        if not model:
+            self.provider = self._default_provider
+            self.model    = self._default_model
+            return
+        self.override_model(model)
 
     def _log_api_key_status(self) -> None:
         """

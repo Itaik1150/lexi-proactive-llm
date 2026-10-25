@@ -19,7 +19,7 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://master-thesis-2026-2
 from utils.mongodb_client import mongodb_client
 from services.fcm_service import FCMService
 from services.llm_service import ProactiveLogic
-from services import log_schema
+from services import injection_state, log_schema
 from services.schedule_utils import daily_quota
 
 class ResearchService:
@@ -474,6 +474,111 @@ class ResearchService:
             "language":          h.language,
         }, h
 
+    # ── Rollback of a failed send (docs/REVIEW.md V3) ─────────────────────────
+
+    def _snapshot_injection_state(self, user_id: str) -> Optional[dict]:
+        """Read the user-document fields inject_prompt() will overwrite, so they can be put back."""
+        try:
+            if not mongodb_client.connect():
+                return None
+            doc = mongodb_client.db[mongodb_client.users_collection].find_one(
+                {"_id": ObjectId(user_id)}, injection_state.PROJECTION,
+            )
+            return injection_state.snapshot_from_user_doc(doc)
+        except Exception as e:
+            print(f"⚠️  Could not snapshot injection state for {user_id[:8]}: {e}")
+            return None
+        finally:
+            try:
+                mongodb_client.disconnect()
+            except Exception:
+                pass
+
+    def _restore_injection_state(self, user_id: str, snapshot: dict) -> bool:
+        """Put the greeting and memory links back exactly as they were before injection."""
+        to_set, to_unset = injection_state.restore_update(snapshot)
+        update = {}
+        if to_set:
+            update["$set"] = to_set
+        if to_unset:
+            update["$unset"] = to_unset
+        try:
+            if not mongodb_client.connect():
+                return False
+            mongodb_client.db[mongodb_client.users_collection].update_one({"_id": ObjectId(user_id)}, update)
+            return True
+        except Exception as e:
+            print(f"⚠️  Could not restore injection state for {user_id[:8]}: {e}")
+            return False
+        finally:
+            try:
+                mongodb_client.disconnect()
+            except Exception:
+                pass
+
+    def _discard_conversation(self, user_id: str, experiment_id: str, conversation_id: str) -> bool:
+        """
+        Delete the opener conversation that was pre-created for a notification that never went out,
+        and reverse the counters the API bumped when it created it (the participant's conversation
+        count and the experiment's session counts). Refuses if the participant has already written
+        in it, so real data is never removed.
+        """
+        try:
+            if not mongodb_client.connect():
+                return False
+            db = mongodb_client.db
+            if db["conversations"].count_documents({"conversationId": conversation_id, "role": "user"}) > 0:
+                print(f"⚠️  Not discarding conversation {conversation_id[:8]}: the participant already wrote in it")
+                return False
+            db["conversations"].delete_many({"conversationId": conversation_id})
+            db["metadata_conversations"].delete_one({"_id": ObjectId(conversation_id)})
+            db[mongodb_client.users_collection].update_one(
+                {"_id": ObjectId(user_id), "numberOfConversations": {"$gt": 0}},
+                {"$inc": {"numberOfConversations": -1}},
+            )
+            if experiment_id:
+                db["experiments"].update_one(
+                    {"_id": ObjectId(experiment_id), "totalSessions": {"$gt": 0}, "openSessions": {"$gt": 0}},
+                    {"$inc": {"totalSessions": -1, "openSessions": -1}},
+                )
+            return True
+        except Exception as e:
+            print(f"⚠️  Could not discard conversation {conversation_id[:8]}: {e}")
+            return False
+        finally:
+            try:
+                mongodb_client.disconnect()
+            except Exception:
+                pass
+
+    def _rollback_send(self, user_id: str, experiment_id: str, snapshot: Optional[dict],
+                       conversation_id: Optional[str], heuristic) -> List[str]:
+        """
+        Undo what a failed send left behind: the injected greeting, the phantom conversation and a
+        consumed memory. Each step is independent and never raises. Returns what was undone.
+        """
+        undone: List[str] = []
+        try:
+            if snapshot is not None and self._restore_injection_state(user_id, snapshot):
+                undone.append("greeting restored")
+        except Exception as e:
+            print(f"⚠️  rollback: restoring greeting failed: {e}")
+        try:
+            if conversation_id and self._discard_conversation(user_id, experiment_id, conversation_id):
+                undone.append("conversation discarded")
+        except Exception as e:
+            print(f"⚠️  rollback: discarding conversation failed: {e}")
+        try:
+            if heuristic is not None and heuristic.undo_selection():
+                undone.append("memory un-used")
+        except Exception as e:
+            print(f"⚠️  rollback: un-using memory failed: {e}")
+        return undone
+
+    @staticmethod
+    def _with_rollback(reason: str, undone: List[str]) -> str:
+        return f"{reason} | rolled back: {', '.join(undone)}" if undone else reason
+
     def coordinated_send_and_inject(self, users: List[Dict], cycle_id: str) -> Dict:
         """
         Per-user orchestration loop.
@@ -484,11 +589,13 @@ class ResearchService:
           3. daily quota check            → the schedule's notifications/day is a hard maximum
           4. _select_heuristic(weights)   → one heuristic name
           5. _run_selected_heuristic()    → instantiate class, call get_proactive_message()
-          6. inject_prompt + _create_conversation + FCM send
-          7. heuristic.clear_after_send()
+          6. inject_prompt, gatekeeper, _create_conversation, FCM send
+          7. heuristic.clear_after_send() on success, or _rollback_send() on failure
 
         EVERY outcome writes one `proactive_logs` row (see services/log_schema.py), including
-        skips, control draws and failures, so the analysis has complete denominators.
+        skips, control draws and failures, so the analysis has complete denominators. A send that
+        fails after the injection is rolled back, so a participant never finds a proactive opener
+        they were not notified about.
         """
         results = {
             "fcm_sent": 0,
@@ -566,8 +673,9 @@ class ResearchService:
                 record(log_schema.SKIPPED_QUOTA, reason=f"{sent_today}/{quota} sent today")
                 continue
 
-            if experiment_llm_model:
-                self.llm_service.override_model(experiment_llm_model)
+            # Always select the model for THIS participant: the experiment's, or the default when it
+            # sets none. Otherwise the previous participant's model would silently carry over.
+            self.llm_service.use_model(experiment_llm_model)
 
             # experiment_type: the dominant non-reactive heuristic weight (descriptive only;
             # the heuristic actually drawn for an attempt is `heuristic_selected`).
@@ -604,14 +712,27 @@ class ResearchService:
 
             stage = "injection"
             conversation_id = None
+            snapshot = None
+            injected = False
             try:
                 from core.models import UserContext
+
+                # Remember what the injection is about to overwrite, so a failure can undo it.
+                snapshot = self._snapshot_injection_state(user_id)
+                if snapshot is None:
+                    results["injection_failed"] += 1
+                    print(f"⚠️  [{username}] could not read user state before injecting — skipping")
+                    undone = self._rollback_send(user_id, experiment_id_str, None, None, heuristic)
+                    record(log_schema.INJECTION_FAILED,
+                           reason=self._with_rollback("could not snapshot user state", undone), message=message)
+                    continue
 
                 # ── CRITICAL ORDER: Inject FIRST, then create conversation ──
                 # The conversation creation reads user.agent.firstChatSentence,
                 # so we MUST inject the proactive message BEFORE creating the conversation.
 
                 print(f"💉 [{username}] Injecting proactive message: {message['generated_message'][:50]}...")
+                injected = True
                 injection_result = self.inject_prompt(
                     user_id,
                     message["generated_message"],
@@ -621,10 +742,41 @@ class ResearchService:
                 if not injection_result:
                     results["injection_failed"] += 1
                     print(f"⚠️  inject_prompt failed for {username} — skipping")
-                    record(log_schema.INJECTION_FAILED, reason="inject_prompt returned False", message=message)
+                    undone = self._rollback_send(user_id, experiment_id_str, snapshot, None, heuristic)
+                    record(log_schema.INJECTION_FAILED,
+                           reason=self._with_rollback("inject_prompt returned False", undone), message=message)
                     continue
 
                 results["injected"] += 1
+
+                # ── Gatekeeper: final isProactive check, BEFORE anything else is created ──
+                # Re-reads the user doc from DB to catch any status change that occurred during
+                # heuristic/LLM processing (e.g. participant opted out after the cycle started).
+                # Checked before the conversation exists, so a drop leaves nothing to clean up.
+                stage = "gatekeeper"
+                try:
+                    if mongodb_client.connect():
+                        live_user = mongodb_client.db[
+                            mongodb_client.users_collection
+                        ].find_one(
+                            {"_id": ObjectId(user_id)},
+                            {"isProactive": 1},
+                        )
+                        mongodb_client.disconnect()
+                        if not live_user or not live_user.get("isProactive", False):
+                            print(f"🚫 [{username}] isProactive=False at dispatch — dropping FCM")
+                            results["fcm_failed"] += 1
+                            undone = self._rollback_send(user_id, experiment_id_str, snapshot, None, heuristic)
+                            record(log_schema.DROPPED_GATEKEEPER,
+                                   reason=self._with_rollback("isProactive=false at dispatch", undone),
+                                   message=message)
+                            continue
+                except Exception as _gk_err:
+                    print(f"⚠️  [{username}] Gatekeeper DB check failed ({_gk_err}) — proceeding")
+                    try:
+                        mongodb_client.disconnect()
+                    except Exception:
+                        pass
 
                 # NOW create the conversation (it will use the injected firstChatSentence)
                 stage = "conversation"
@@ -634,7 +786,9 @@ class ResearchService:
                 if not conversation_id:
                     print(f"⚠️  Could not pre-create conversation for {username} — skipping")
                     results["fcm_failed"] += 1
-                    record(log_schema.CONVERSATION_FAILED, reason="conversations/create failed", message=message)
+                    undone = self._rollback_send(user_id, experiment_id_str, snapshot, None, heuristic)
+                    record(log_schema.CONVERSATION_FAILED,
+                           reason=self._with_rollback("conversations/create failed", undone), message=message)
                     continue
 
                 print(f"📝 [{username}] Created NEW conversation {conversation_id} with proactive opener as messageNumber: 1")
@@ -654,33 +808,6 @@ class ResearchService:
                         "conversationId": conversation_id,
                         "experimentId": experiment_id_str,
                     }
-
-                # ── Gatekeeper: final isProactive check before FCM dispatch ──
-                # Re-reads the user doc from DB to catch any status change that
-                # occurred during heuristic/LLM processing (e.g. participant
-                # opted out after the cycle started).
-                stage = "gatekeeper"
-                try:
-                    if mongodb_client.connect():
-                        live_user = mongodb_client.db[
-                            mongodb_client.users_collection
-                        ].find_one(
-                            {"_id": ObjectId(user_id)},
-                            {"isProactive": 1},
-                        )
-                        mongodb_client.disconnect()
-                        if not live_user or not live_user.get("isProactive", False):
-                            print(f"🚫 [{username}] isProactive=False at dispatch — dropping FCM")
-                            results["fcm_failed"] += 1
-                            record(log_schema.DROPPED_GATEKEEPER, reason="isProactive=false at dispatch",
-                                   message=message, conversation_id=conversation_id)
-                            continue
-                except Exception as _gk_err:
-                    print(f"⚠️  [{username}] Gatekeeper DB check failed ({_gk_err}) — proceeding")
-                    try:
-                        mongodb_client.disconnect()
-                    except Exception:
-                        pass
 
                 stage = "fcm"
                 notification_result = self.fcm_service.send_to_user(
@@ -706,15 +833,22 @@ class ResearchService:
                 else:
                     results["fcm_failed"] += 1
                     print(f"❌ FCM failed for {username}")
-                    record(log_schema.FCM_FAILED, reason="FCM returned no message id",
+                    undone = self._rollback_send(user_id, experiment_id_str, snapshot, conversation_id, heuristic)
+                    record(log_schema.FCM_FAILED,
+                           reason=self._with_rollback("FCM returned no message id", undone),
                            message=message, conversation_id=conversation_id)
 
             except Exception as e:
                 results["fcm_failed"] += 1
                 print(f"❌ Error processing user {username}: {e}")
 
+                undone = (
+                    self._rollback_send(user_id, experiment_id_str, snapshot, conversation_id, heuristic)
+                    if injected else []
+                )
                 failed_status = log_schema.FCM_FAILED if stage == "fcm" else log_schema.ERROR
-                record(failed_status, reason=f"{stage}: {type(e).__name__}: {e}",
+                record(failed_status,
+                       reason=self._with_rollback(f"{stage}: {type(e).__name__}: {e}", undone),
                        message=message, conversation_id=conversation_id)
 
                 if self._is_stale_token_error(e):

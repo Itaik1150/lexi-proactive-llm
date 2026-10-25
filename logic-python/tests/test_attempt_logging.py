@@ -98,6 +98,9 @@ class EveryAttemptIsLogged(unittest.TestCase):
         self.heuristic = MagicMock(linked_memory_id="m1")
         svc._run_selected_heuristic = MagicMock(return_value=(dict(MESSAGE), self.heuristic))
         svc.inject_prompt = MagicMock(return_value=True)
+        svc._snapshot_injection_state = MagicMock(return_value={"first_chat_sentence": "Hello"})
+        svc._restore_injection_state = MagicMock(return_value=True)
+        svc._discard_conversation = MagicMock(return_value=True)
         svc._create_conversation = MagicMock(return_value="conv-1")
         svc.clear_stale_fcm_token = MagicMock()
         svc.log_proactive_event = MagicMock()
@@ -161,7 +164,8 @@ class EveryAttemptIsLogged(unittest.TestCase):
         self.db.db.__getitem__.return_value.find_one.return_value = {"isProactive": False}
         status, kw = self.run_loop()
         self.assertEqual(status, log_schema.DROPPED_GATEKEEPER)
-        self.assertEqual(kw["conversation_id"], "conv-1")
+        self.assertIsNone(kw["conversation_id"], "dropped before any conversation was created")
+        self.svc._create_conversation.assert_not_called()
         self.svc.fcm_service.send_to_user.assert_not_called()
 
     def test_fcm_exception_is_logged_with_its_reason(self):

@@ -322,3 +322,11 @@ class BaseHeuristic(ABC):
         Default: no-op.  Override in subclasses that write pending state to MongoDB.
         """
         pass
+
+    def undo_selection(self) -> bool:
+        """
+        Reverse state this heuristic consumed when it picked its memory, for a send that failed
+        afterwards, so the memory can be used on the next attempt. Returns True if something
+        was undone. Default: nothing to undo (the heuristic only changes state after a send).
+        """
+        return False

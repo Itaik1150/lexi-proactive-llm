@@ -26,6 +26,8 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | V1b | Dashboard save wiped `defaultLanguage` | ✅ | found while fixing V1; save now keeps unknown keys |
 | R1 | Every job notified all experiments' users | ✅ | jobs are scoped to the experiment whose schedule fired them |
 | V2 | Only successful sends were logged; no funnel | ✅ | every attempt logged with status and reason; `conversation_id`, quota and model used stored; API stamps `opened_at` / `first_reply_at` |
+| V3 | Failed sends left an opener, a phantom conversation and a consumed memory behind | ✅ | snapshot before injecting; full rollback on failure; gatekeeper moved ahead of conversation creation |
+| V4 | Model leaked between experiments; log named the wrong model | ✅ | model selected per participant; `llm_model_used` logged |
 | S8 | Stale-token cleanup could opt everyone out | ✅ | typed Firebase errors only; unit-tested (`logic-python/tests/`) |
 | S2 | Push-token routes had no login | ✅ | `requireUser` middleware; id comes from the login cookie; response no longer returns the user record |
 | S4 | `/join` XSS and unvalidated writes | ✅ | id must be a real experiment (24 hex + exists), escaped, downloads rate-limited |
@@ -96,19 +98,23 @@ Fields that do not apply are `null` rather than a misleading default. The API st
 Tests drive the real send loop through every outcome and assert exactly one row each. See [`DATA_AND_ANALYSIS.md`](DATA_AND_ANALYSIS.md) for the schema and queries.
 *Still open:* `used_static_template` (V11), `temperature` (V10), memory id/age (V5), a code-version stamp; rolling back a failed send is V3.
 
-### V3. Nothing is rolled back when a send fails after injection **[V]**
-`coordinated_send_and_inject` (1) overwrites the participant's `agent.firstChatSentence`, (2) pre-creates a conversation,
-(3) *then* checks the gatekeeper and sends FCM. If step 3 fails or the gatekeeper drops it, the opener stays injected, the
-phantom conversation stays, and — for Affective — the memory was already marked `used`. The participant later opens the app
-and sees a proactive message they were never notified about, in a condition they were not meant to be in.
-*Fix:* compensate on failure (restore `injected_prompt_original`, delete the conversation, un-use the memory), or reorder so the
-irreversible steps come last.
+### V3. Nothing was rolled back when a send failed after injection **[V]** — ✅ fixed
+The loop overwrote the participant's `agent.firstChatSentence`, pre-created a conversation, and only then checked the gatekeeper and
+sent FCM. A failure left the opener injected, a phantom conversation behind, the participant's conversation count and the experiment's
+session counts inflated, and — for Affective — the memory already marked `used`. The participant would later see a proactive
+message they were never notified about.
+*Fix (done):* before injecting, the engine snapshots the fields it will overwrite (`services/injection_state.py`). If anything fails afterwards
+it puts them back, deletes the pre-created conversation and reverses the counters the API bumped (refusing if the participant already wrote in it),
+and gives the memory back (`undo_selection`, implemented for Affective; the other heuristics only change state after a successful send).
+The gatekeeper check now runs *before* the conversation is created, so the most common drop leaves nothing to clean up. If the user state cannot be read,
+nothing is sent. Each rollback step is independent and never raises; the log row's `reason` says what was undone (`| rolled back: greeting restored, conversation discarded, memory un-used`).
+*Not covered:* if the API created the conversation but its response was lost (timeout), the engine cannot know and nothing is discarded.
 
-### V4. The logged `llm_model` is not necessarily the model used **[V]**
-`override_model()` mutates a process-wide singleton and is only called when the experiment has `llmModel` set.
-It is never reset, so after one experiment uses `claude-…`, every later user and cycle keeps using it until restart —
-while `log_proactive_event` records the *experiment's* setting (`llm_model=experiment_llm_model`).
-*Fix:* set the model explicitly for every user (`experiment_model or default`) and log `llm_service.model`.
+### V4. The logged `llm_model` was not necessarily the model used **[V]** — ✅ fixed
+`override_model()` mutated a process-wide singleton and was only called when the experiment had `llmModel` set, so after one experiment used `claude-…`
+every later participant and cycle kept using it until restart, while the log recorded the experiment's setting.
+*Fix (done):* `ProactiveLogic.use_model()` is called for **every** participant — the experiment's model, or the environment default when none is set —
+and `llm_model_used` (the model actually called) is logged next to `llm_model` (what was asked for). Unit-tested, including that the loop selects the model per participant.
 
 ### V5. Treatment fidelity: most sends are probably fallbacks **[V]**
 Memory is extracted **only when that heuristic is drawn** for that user, at send time:
@@ -276,6 +282,6 @@ deep-linking straight into the pre-created conversation; live-editable configura
 |---|---|---|
 | **Today** | Rotate the Atlas password | S1 |
 | **This week** (small, high value) | `allowBackup=false` · allow-list WebView origin · debug-only cleartext · signed release build | S3 S6 |
-| **Before more participants** | roll back failed sends · reset model per user · fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
+| **Before more participants** | fix scan tracking · one opener-reset path · confirm join with the participant | V2 V3 V4 V6 R5 V9 |
 | **Before the analysis** | Measure fallback rate · decouple memory building · align temperature/limits · timezone · contexts across conditions | V5 V7 V10 V11 V12 V13 |
 | **Hardening** | Separate worker + heartbeat · single Mongo client · per-experiment scheduling · tests · pin/update deps | R1–R4 R9 S11 |

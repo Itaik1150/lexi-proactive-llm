@@ -57,14 +57,14 @@ Exactly which files are yours and which are upstream: [`UPSTREAM_DELTA.md`](UPST
    (c) generates a message with the LLM, or (d) falls back to a cold-start message. It never returns `None`.
 6. **Inject** the message into `users.agent.firstChatSentence`, remembering the previous greeting in
    `proactiveMemory.injected_prompt_original`.
-7. **Pre-create a conversation** via `POST /conversations/create` on the Node API. Node builds the first message from the injected
+7. **Gatekeeper**: re-read `isProactive`; drop the send if the participant was switched off meanwhile.
+8. **Pre-create a conversation** via `POST /conversations/create` on the Node API. Node builds the first message from the injected
    sentence and flags it `isProactiveOpener`.
-8. **Gatekeeper**: re-read `isProactive`; drop the send if the participant was switched off meanwhile.
 9. **Send FCM** with `conversationId` and `experimentId` in the data payload.
 10. **Log** and clean up. Every attempt — sends, skips, control draws and failures — writes one `proactive_logs` document with its outcome and reason; a successful send also calls `heuristic.clear_after_send()`. Later the API stamps `opened_at` and `first_reply_at` on the row when the participant opens and answers the conversation.
 
-The order 6 → 7 matters: the Node server reads the injected sentence while creating the conversation.
-Steps 6–8 are not rolled back if 9 fails (REVIEW V3).
+The order matters: the Node server reads the injected sentence while creating the conversation, and the gatekeeper runs first so a drop creates nothing.
+Before step 6 the engine snapshots the greeting fields it will overwrite; if any later step fails it restores them, deletes the pre-created conversation (reversing the counters the API bumped) and un-uses a consumed memory, and the log row says what was rolled back.
 
 ### After the participant taps the notification
 The app opens the WebView on `/…/conversations/<id>`. When the participant replies (or finishes, or a timer expires),
