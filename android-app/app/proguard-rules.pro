@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# The web app calls these through window.Android. If minification (isMinifyEnabled) is turned on,
+# the bridge methods must keep their names or the web app silently loses them.
+-keepclassmembers class com.example.lexiparticipant.AndroidBridge {
+    @android.webkit.JavascriptInterface <methods>;
+}

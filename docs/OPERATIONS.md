@@ -93,18 +93,34 @@ See the runbook.
 **Rotating credentials** — Atlas user password (then Render env `MONGODB_URL` in *both* services' config), `JWT_SECRET_KEY` (logs everyone out),
 OpenAI/Anthropic keys, Firebase service account (create new key in Firebase console, replace, delete the old one).
 
-## 6. Testing the Android join flow
+## 6. Testing the Android app changes
 
-The "Open Lexi" hand-off, the confirmation screen and the manual fallback are code-complete but were written without being compiled. Do this once, in this order:
+The join hand-off (V9) and the hardening (S3, S6) are code-complete but were written without being compiled. Do this once, in this order:
 
-1. **Unit tests.** In Android Studio open `android-app/`, let Gradle sync, then right-click `app/src/test/.../JoinLinkTest.kt` → *Run*. All 7 tests should pass. If the project does not compile, send me the error text.
-2. **Build and install** the debug app on a phone (or emulator). Keep `SERVER_URL` and `FRONTEND_BASE_URL` in `app/build.gradle.kts` pointing at your deployed servers.
-3. **Deep link.** With the app installed run `adb shell am start -a android.intent.action.VIEW -d "lexi://join/<experimentId>"` (or open the join page on the phone and tap **Open Lexi**). You should see "You are joining *Study name*"; **Continue** opens the chat.
-4. **Wrong or unknown id.** `lexi://join/000000000000000000000000` should say the invitation is not valid and offer manual entry.
-5. **Manual fallback.** On a fresh install, open the app from the launcher with no link. If it cannot match you, paste your `.../join/<id>` link: it must be accepted.
-6. **Same experiment again** (tap **Open Lexi** after setup): it should open the chat directly without asking.
+**Build and unit tests**
+1. In Android Studio open `android-app/`, let Gradle sync, then run the unit tests: right-click `app/src/test/java/com/example/lexiparticipant` → *Run Tests*. Expect `JoinLinkTest` (7) and `UrlPolicyTest` (7) to pass. If the project does not compile, send me the error text.
+2. Build and install the **debug** app on a phone. Keep `SERVER_URL` and `FRONTEND_BASE_URL` in `app/build.gradle.kts` on your deployed servers (https).
+
+**Joining (V9)**
+3. `adb shell am start -a android.intent.action.VIEW -d "lexi://join/<experimentId>"` (or open the join page on the phone and tap **Open Lexi**) → "You are joining *Study name*"; **Continue** opens the chat.
+4. `lexi://join/000000000000000000000000` → "not valid" with manual entry.
+5. Fresh install, open from the launcher with no link: it either shows the confirmation (address matched) or the manual screen; paste your `.../join/<id>` link → accepted.
+6. Tap **Open Lexi** again after setup → opens the chat directly.
+
+**Hardening (S3, S6)**
+7. **Notification tap.** Send a test notification, lock the phone, check the lock screen shows only "You have a new message" (with `HIDE_TEXT_ON_LOCK_SCREEN = true`), unlock, tap it → the right conversation opens. After the tap, the annotation/feedback control should behave as intended (the "opened from notification" flag now reaches the web app).
+8. **Outside links.** If a message contains a link to another website, tapping it must open the normal browser, not inside Lexi.
+9. **Bad deep link.** `adb shell am start -n com.example.lexiparticipant/.MainActivity --es deepLinkUrl "https://example.com"` must NOT load example.com in the app (the app opens normally).
+10. **Existing installs.** On a phone that already has a saved study, update the app: it should open the same study without asking.
 
 `apk_match_events` (see DATA_AND_ANALYSIS) shows how often the automatic match worked, was ambiguous, or found nothing.
+
+**Decisions for you**
+- `HIDE_TEXT_ON_LOCK_SCREEN` (in `app/build.gradle.kts`): `true` hides the message text on a locked phone, which protects participants but means they read the message after unlocking; `false` keeps today's behaviour. This changes what participants see without unlocking, so choose it deliberately and record it with the study design.
+- `versionCode` is still 5. Raise it (and `versionName`) when you distribute this build: the app deliberately forgets the saved study when the version changes.
+
+**Releasing a signed build (not done — needs your keystore)**
+The join page still serves a *debug* APK. A release build needs: (1) a keystore you create once with `keytool -genkeypair -v -keystore lexi-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias lexi` and keep **outside** the repository, (2) a `signingConfigs` entry in `app/build.gradle.kts` reading the keystore path and passwords from `~/.gradle/gradle.properties` (never from the repo), (3) `Build → Generate Signed Bundle / APK` → APK → release, upload it to a GitHub release and point `APK_DOWNLOAD_URL` at it. Turning on `isMinifyEnabled` is optional; the keep rule for the bridge methods is already in `proguard-rules.pro`, but test the release APK on a phone before distributing it.
 
 ## 7. What to set up next
 

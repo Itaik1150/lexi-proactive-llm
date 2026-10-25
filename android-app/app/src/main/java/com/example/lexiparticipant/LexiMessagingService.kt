@@ -16,9 +16,10 @@ import com.google.firebase.messaging.RemoteMessage
 class LexiMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
-        Log.d("FCM", "New token: $token")
-        val prefs = getSharedPreferences("lexi", MODE_PRIVATE)
-        prefs.edit().putString("fcmToken", token).apply()
+        // The token identifies this device to the server; never write it to the log.
+        Log.d("FCM", "New token received (${token.length} characters)")
+        val prefs = getSharedPreferences(AndroidBridge.PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().putString(AndroidBridge.KEY_FCM_TOKEN, token).apply()
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -31,7 +32,8 @@ class LexiMessagingService : FirebaseMessagingService() {
 
         // Build a direct deep-link URL when both IDs are present so the
         // notification tap lands in the exact conversation rather than home.
-        val deepLinkUrl: String? = if (!conversationId.isNullOrEmpty() && !experimentId.isNullOrEmpty()) {
+        // Both ids must be exactly 24 hex characters; anything else is ignored rather than put into a URL.
+        val deepLinkUrl: String? = if (JoinLink.isExperimentId(conversationId) && JoinLink.isExperimentId(experimentId)) {
             "${BuildConfig.FRONTEND_BASE_URL}/e/$experimentId/c/$conversationId"
         } else {
             null  // fallback: MainActivity will load the cached experiment URL
@@ -114,6 +116,19 @@ class LexiMessagingService : FirebaseMessagingService() {
             .setVibrate(longArrayOf(0, 400, 200, 400))
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)        // wake screen + show over lock screen
+            .apply {
+                if (BuildConfig.HIDE_TEXT_ON_LOCK_SCREEN) {
+                    // On a locked phone show only a generic notification; the message itself appears after unlocking.
+                    setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                    setPublicVersion(
+                        NotificationCompat.Builder(this@LexiMessagingService, channelId)
+                            .setSmallIcon(R.mipmap.faviconh)
+                            .setContentTitle(title)
+                            .setContentText("You have a new message")
+                            .build()
+                    )
+                }
+            }
             .build()
 
         // Unique notification ID ensures each nudge appears as a separate entry

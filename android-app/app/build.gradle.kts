@@ -26,6 +26,11 @@ android {
         buildConfigField("String", "SERVER_URL", "\"https://lexi-server-1rx9.onrender.com\"")
         // Frontend base URL — experiment WebView loads <FRONTEND_BASE_URL>/e/<experimentId>
         buildConfigField("String", "FRONTEND_BASE_URL", "\"https://master-thesis-2026-2027-code-base.vercel.app\"")
+        // Notification text on a LOCKED phone. true: only "You have a new message" is shown and the real text
+        // appears after unlocking (private by default; emotional messages must not be readable by bystanders).
+        // false: the full message is shown on the lock screen. This decides what participants see without
+        // unlocking, so set it deliberately for the study.
+        buildConfigField("boolean", "HIDE_TEXT_ON_LOCK_SCREEN", "true")
         // LOCAL dev overrides (swap comments as needed):
         // buildConfigField("String", "SERVER_URL", "\"http://192.168.31.200:5000\"")
         // buildConfigField("String", "FRONTEND_BASE_URL", "\"http://192.168.31.200:3000\"")

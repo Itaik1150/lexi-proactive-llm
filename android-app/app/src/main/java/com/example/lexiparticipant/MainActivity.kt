@@ -39,6 +39,12 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    // The preferences the JS bridge reads (FCM token, "opened from notification" flag). The flag used to be
+    // written to `prefs` above while the bridge read a different file, so the web app never saw it.
+    private val bridgePrefs: SharedPreferences by lazy {
+        getSharedPreferences(AndroidBridge.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
     // Held so onNewIntent can navigate without recreating the composable tree.
     private var activeWebView: WebView? = null
 
@@ -52,11 +58,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val deepLinkUrl = intent.getStringExtra("deepLinkUrl")
-        if (!deepLinkUrl.isNullOrEmpty()) {
+        val deepLinkUrl = allowedDeepLink(intent.getStringExtra("deepLinkUrl"))
+        if (deepLinkUrl != null) {
             // Mark that we opened from notification (for React app to check)
-            prefs.edit().putBoolean("openedFromNotification", true).apply()
-            android.util.Log.d("Lexi", "onNewIntent: navigating to $deepLinkUrl (from notification)")
+            bridgePrefs.edit().putBoolean(AndroidBridge.KEY_OPENED_FROM_NOTIFICATION, true).apply()
+            android.util.Log.d("Lexi", "onNewIntent: navigating to the notification's conversation")
             activeWebView?.loadUrl(deepLinkUrl)
         }
     }
@@ -79,22 +85,22 @@ class MainActivity : ComponentActivity() {
                 .apply()
         }
 
-        val deepLinkUrl = intent?.getStringExtra("deepLinkUrl")
+        // Only a link into this build's own web app may be loaded (see UrlPolicy); anything else is ignored.
+        val deepLinkUrl = allowedDeepLink(intent?.getStringExtra("deepLinkUrl"))
 
         // If this launch came from a notification tap, honour the deep link
-        // immediately — regardless of whether a savedUrl exists.
-        // Also restore the base experiment URL from the deep link so future
-        // regular launches (without a notification) still work correctly.
-        if (!deepLinkUrl.isNullOrEmpty()) {
+        // immediately - regardless of whether a savedUrl exists.
+        // Also remember the experiment so future regular launches (without a notification) still work.
+        if (deepLinkUrl != null) {
             // Mark that we opened from notification (for React app to check)
-            prefs.edit().putBoolean("openedFromNotification", true).apply()
-            android.util.Log.d("Lexi", "onCreate: Opened from notification with URL: $deepLinkUrl")
-            
-            // Extract base experiment URL: everything up to and including /e/:id
-            // e.g. https://host/e/abc123/c/def456  →  https://host/e/abc123
-            val baseUrl = Regex("(https?://[^/]+/e/[a-fA-F0-9]{24})").find(deepLinkUrl)?.groupValues?.get(1)
-            if (baseUrl != null) {
-                prefs.edit().putString(KEY_EXPERIMENT_URL, baseUrl).apply()
+            bridgePrefs.edit().putBoolean(AndroidBridge.KEY_OPENED_FROM_NOTIFICATION, true).apply()
+            android.util.Log.d("Lexi", "onCreate: opened from a notification")
+
+            // Rebuild the base experiment URL (.../e/:id) from the validated id, never from the link text.
+            JoinLink.idFromPastedLink(deepLinkUrl)?.let { id ->
+                prefs.edit()
+                    .putString(KEY_EXPERIMENT_URL, JoinLink.experimentUrl(BuildConfig.FRONTEND_BASE_URL, id))
+                    .apply()
             }
             setContent { MaterialTheme { ChatScreen(url = deepLinkUrl, onWebViewCreated = { activeWebView = it }) } }
             return
@@ -107,7 +113,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val savedUrl = prefs.getString(KEY_EXPERIMENT_URL, null)
+        val savedUrl = loadSavedExperimentUrl()
 
         if (savedUrl != null) {
             setContent { MaterialTheme { ChatScreen(url = savedUrl, onWebViewCreated = { activeWebView = it }) } }
@@ -131,10 +137,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // A link passed in an intent extra is used only if it points into this build's own web app.
+    private fun allowedDeepLink(url: String?): String? =
+        url?.takeIf { UrlPolicy.isAllowed(it, BuildConfig.FRONTEND_BASE_URL) }
+
+    // The saved experiment URL, checked on every read. One saved by an older version may point at another host
+    // (it used to be whatever the participant pasted); keep only its experiment id and rebuild the URL.
+    private fun loadSavedExperimentUrl(): String? {
+        val stored = prefs.getString(KEY_EXPERIMENT_URL, null) ?: return null
+        if (UrlPolicy.isAllowed(stored, BuildConfig.FRONTEND_BASE_URL)) return stored
+        val rebuilt = JoinLink.idFromPastedLink(stored)
+            ?.let { JoinLink.experimentUrl(BuildConfig.FRONTEND_BASE_URL, it) }
+        if (rebuilt != null) {
+            prefs.edit().putString(KEY_EXPERIMENT_URL, rebuilt).apply()
+        } else {
+            prefs.edit().remove(KEY_EXPERIMENT_URL).apply()
+        }
+        return rebuilt
+    }
+
     // A join link (lexi://join/<id>) was opened. If it is the experiment this phone is already set up for,
     // just open it; otherwise ask the participant to confirm before switching.
     private fun handleJoinLink(experimentId: String) {
-        val savedUrl = prefs.getString(KEY_EXPERIMENT_URL, null)
+        val savedUrl = loadSavedExperimentUrl()
         if (savedUrl != null && JoinLink.idFromPastedLink(savedUrl) == experimentId) {
             setContent { MaterialTheme { ChatScreen(url = savedUrl, onWebViewCreated = { activeWebView = it }) } }
         } else {
@@ -442,10 +467,13 @@ private fun ChatScreen(url: String, onWebViewCreated: ((WebView) -> Unit)? = nul
                     settings.domStorageEnabled = true
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        settings.mixedContentMode =
-                            android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    }
+                    // The app only talks to its own https servers; plain-http content is allowed only in debug builds.
+                    settings.mixedContentMode =
+                        if (BuildConfig.DEBUG) android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                        else android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    // The page never needs the phone's files or content providers.
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
                     // The auth cookie is set by the API server (Render domain) while the
                     // page is served from Vercel — a cross-origin (third-party) cookie.
                     // Android 5+ blocks these by default; explicitly allow them so the
@@ -462,6 +490,28 @@ private fun ChatScreen(url: String, onWebViewCreated: ((WebView) -> Unit)? = nul
                         ) {
                             super.onReceivedError(view, request, error)
                             android.util.Log.e("Lexi", "WebView Error: ${error?.description}")
+                        }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: android.webkit.WebResourceRequest?,
+                        ): Boolean {
+                            val target = request?.url?.toString()
+                            // The study's own pages stay in the app.
+                            if (UrlPolicy.isAllowed(target, BuildConfig.FRONTEND_BASE_URL)) return false
+                            // Anything else never loads here (the JS bridge is attached to this WebView):
+                            // web links open in the normal browser, everything else is dropped.
+                            if (target != null && (target.startsWith("http://") || target.startsWith("https://"))) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                } catch (e: Exception) {
+                                    android.util.Log.w("Lexi", "Could not open external link: ${e.message}")
+                                }
+                            }
+                            return true
                         }
                     }
                     webChromeClient = WebChromeClient()
