@@ -35,7 +35,8 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | S5 | CORS accepted look-alike Vercel projects | ✅ | exact origins only; previews opt-in via `CORS_PREVIEW_SUFFIX`; refused origins no longer 500 |
 | S3 S6 | WebView origin allow-list, Android hardening (backup, cleartext, debug APK, lock screen) | ⬜ | |
 | R5 | Four overlapping opener-reset paths; a race could replace a fresh opener or blank the greeting | ✅ | one atomic reset; the two dormant paths removed; engine verifies the conversation really starts with the opener |
-| V9 | Join link can assign the wrong experiment | 🟡 | server side done (never guesses; /64 IPv6 matching; match outcomes recorded). The app side needs a decision from you and a phone — see V9 |
+| V9 | Join link can assign the wrong experiment | 🟡 | server side deployed; "Open Lexi" hand-off, confirmation screen and safer manual fallback are written but **not yet built or tested on a phone** (checklist in OPERATIONS §6) |
+| S12 | `GET /experiments/:id` returns the whole experiment (prompts, settings) to anyone, no login | ⬜ | new finding; see §2 |
 | V5 V7 V10–V13 | Fidelity, context asymmetry, LLM confounds, timezone | ⬜ | |
 | R1–R4 R9 S11 | Scheduler per experiment, worker + heartbeat, single Mongo client, tests, deps | ⬜ | |
 
@@ -171,11 +172,11 @@ If one address has downloads for **different** experiments the server answers "a
 IPv6 addresses are compared on their /64 prefix, so a phone's browser (download) and app (first launch) still match when only the interface identifier differs; sessions are claimed atomically so a download is never assigned twice.
 Outcomes are counted in a new `apk_match_events` collection (`matched`, `ambiguous`, `none`, `lost_race`, with candidate counts and no addresses), so the match rate can be measured — see [`DATA_AND_ANALYSIS.md`](DATA_AND_ANALYSIS.md). Raw IPs are no longer written to the server logs, and the endpoint no longer dumps other participants' IPs.
 The match response also carries `experimentTitle` for a confirmation screen.
-*Still open, needs the app (and a phone to test):*
-1. **A reliable handoff that does not depend on the network address.** Options: **(a, recommended)** an "Open Lexi" button on the join page that opens the installed app with the experiment id (`lexi://join/<id>`) — no typing, deterministic, falls back to the address match when the participant opens the app from the launcher; **(b)** a short code shown on the join page that the participant types into the app (works everywhere, small effort for the participant). Play Store's Install Referrer is not available for a sideloaded APK.
-2. **The manual fallback only accepts `/e/<id>` links**, but participants are given `/join/<id>` links, so "paste the link you received" fails. The app should accept both and always store `<FRONTEND_BASE_URL>/e/<id>`.
-3. **A confirmation screen** ("You are joining *Study name* — Continue / Not me") using the `experimentTitle` above, because the result is stored permanently.
-4. `X-Forwarded-For[0]` is client-controlled unless a trusted proxy overwrites it; the match is a best-effort convenience, never a security control.
+*Written for the app (option 1, chosen), awaiting a build and a phone test* — the code compiles only in Android Studio, which this review could not run, so treat it as unverified until step 1 of the checklist in [`OPERATIONS.md`](OPERATIONS.md#6-testing-the-android-join-flow) passes:
+1. **"Open Lexi" hand-off.** The join page now has an *Open Lexi* button (an Android intent link, with a plain `lexi://join/<id>` fallback) that opens the installed app with the experiment id, independent of the network address. The app registers `lexi://join/<id>` in its manifest and validates the id (exactly 24 hex characters) before using it.
+2. **Confirmation screen.** Whether the experiment comes from the button or from the network-address match, the participant sees "You are joining *Study name* — Continue / This is not my study" before it is stored permanently. The title comes from a new minimal public endpoint, `GET /experiments/:id/public` (title and active flag only).
+3. **Manual fallback accepts the link participants actually have.** It now takes `/join/<id>` and `/e/<id>` links, and the app always loads `<FRONTEND_BASE_URL>/e/<id>` built from the validated id — never a host taken from pasted text.
+*Limits:* sideloaded apps give no install-referrer, so if a participant opens Lexi straight from the installer (not from the page) the app falls back to the address match plus the confirmation screen. `X-Forwarded-For[0]` is client-controlled unless a trusted proxy overwrites it; the match is a convenience, never a security control.
 
 ### V10. Provider and prompt confounds **[V]**
 - The Anthropic branch of `_call_llm` **ignores `temperature`** (default 1.0 applies) while OpenAI honours 0.3–0.7. Comparing models compares different sampling.
@@ -217,6 +218,7 @@ naive datetimes are read as UTC. Skew is 2–3 h against a 6–24 h window. *Fix
 | S9 | **Low–Med** | `PUT /experiments` and other admin routes appear to have no `isAdmin` check (upstream pattern); JWT has no `expiresIn` and is re-issued on every `/user`. **[R]**, suspected | `experimentsRouter`, `users.service.ts` | auth middleware + expiry |
 | S10 | **Low–Med** | `get_all_proactive_users` sets `isProactive=true` for every user with a token and no flag. Fine operationally; check it matches how consent is recorded. **[V]** | `research_service.py:118` | confirm with ethics text |
 | S11 | Low | `requests==2.31.0` has a known CVE (fixed in 2.32); all Python deps are pinned to 2023 versions. **[V]** | `requirements.txt` | bump |
+| S12 | **Med** | `GET /experiments/:id` (and `/features`, `/content`, `/registrationForm`, `/conversationForms`) return experiment data to anyone who knows the id, with no login. The first returns the whole document, including `proactiveSettings` (the researcher's prompts, weights, schedule). **[V]** (`getExperiment` returns the document unfiltered) | `experimentsController.getExperiment` | return only what a participant's browser needs, or require login; the app now uses `GET /experiments/:id/public` instead |
 
 ---
 

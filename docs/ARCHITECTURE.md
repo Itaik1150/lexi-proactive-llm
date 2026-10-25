@@ -115,9 +115,9 @@ All times are `Asia/Jerusalem`.
 
 ## 6. Participant onboarding (Android)
 
-1. Researcher shares `…/join/<experimentId>`. The Node server shows a landing page.
+1. Researcher shares `…/join/<experimentId>`. The Node server shows a landing page with **Download & Join** and, once the app is installed, **Open Lexi** (an intent link to `lexi://join/<experimentId>` that hands the experiment to the app directly).
 2. **Download** hits `/join/<id>/download`: the server stores `{ip, experimentId, timestamp, matched:false}` in `apk_sessions` and redirects to the APK release.
-3. On first launch `MainActivity` calls the API's match-session endpoint. The server compares the caller's network address (IPv6 by /64 prefix) with unused downloads from the last 60 minutes and matches only if they all belong to one experiment; if the same address downloaded for different experiments it answers "ambiguous" and the app asks the participant. A matched `experimentId` is stored on the phone. Outcomes are counted in `apk_match_events`. (Remaining weaknesses and the planned app-side handoff: REVIEW V9.)
+3. On first launch `MainActivity` calls the API's match-session endpoint. The server compares the caller's network address (IPv6 by /64 prefix) with unused downloads from the last 60 minutes and matches only if they all belong to one experiment; if the same address downloaded for different experiments it answers "ambiguous" and the app asks the participant. Whether the experiment arrives from the **Open Lexi** link or from this match, the app shows "You are joining *Study name*" (title from `GET /experiments/:id/public`) and stores the experiment only after the participant confirms; the URL it loads is always built from the build's own frontend address and the validated id. Outcomes are counted in `apk_match_events`. (Remaining weaknesses and the planned app-side handoff: REVIEW V9.)
 4. The participant registers/logs in inside the WebView; the page passes the FCM token to the API (`/users/fcm-token` or `/users/register-device`). These calls require the login cookie and always act on the logged-in user.
 5. From then on `LexiMessagingService` receives pushes, builds a high-priority notification and, on tap, opens the deep-link URL.
 

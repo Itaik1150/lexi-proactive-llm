@@ -32,8 +32,11 @@ const sendInvalidLink = (res: Response): void => {
     res.status(404).type('text/plain').send('This invitation link is not valid. Please ask the researcher for a new one.');
 };
 
+// Package name of the participant app; the intent link below opens exactly this app.
+const ANDROID_PACKAGE = 'com.example.lexiparticipant';
+
 // Minimal mobile-first landing page returned as raw HTML.
-const buildLandingPage = (experimentId: string): string => `<!DOCTYPE html>
+export const buildLandingPage = (experimentId: string): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -72,6 +75,9 @@ const buildLandingPage = (experimentId: string): string => `<!DOCTYPE html>
     .btn:hover { background: #1558b0; }
     .note { color: #888; font-size: 0.82rem; margin-top: 20px; line-height: 1.5; }
     .steps { text-align: left; margin: 24px 0 8px; color: #444; font-size: 0.9rem; line-height: 2; }
+    .btn.secondary { background: #fff; color: #1a73e8; border: 2px solid #1a73e8; margin-top: 12px; }
+    .small { font-size: 0.8rem; color: #666; margin-top: 10px; }
+    .small a { color: #1a73e8; }
   </style>
 </head>
 <body>
@@ -85,11 +91,19 @@ const buildLandingPage = (experimentId: string): string => `<!DOCTYPE html>
       Download &amp; Join
     </a>
     <div class="steps">
-      <strong>After downloading:</strong><br/>
-      1. Open the downloaded file to install Lexi.<br/>
+      <strong>How to join:</strong><br/>
+      1. Tap <em>Download &amp; Join</em> and open the downloaded file to install Lexi.<br/>
       2. If prompted, allow installation from unknown sources.<br/>
-      3. Open Lexi — you will be connected automatically.
+      3. When the installation finishes tap <em>Done</em>, come back to this page and tap <em>Open Lexi</em>.
     </div>
+    <a class="btn secondary"
+       href="intent://join/${escapeHtml(experimentId)}#Intent;scheme=lexi;package=${ANDROID_PACKAGE};end">
+      Open Lexi
+    </a>
+    <p class="small">
+      Button does nothing? <a href="lexi://join/${escapeHtml(experimentId)}">Tap here</a>.
+      If you opened Lexi straight from the installer, it will try to find your study by itself and ask you to confirm.
+    </p>
     <p class="note">
       The app requires Android 8.0 or above.<br/>
       All interactions are fully anonymous.

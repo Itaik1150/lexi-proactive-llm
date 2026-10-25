@@ -4,7 +4,7 @@ import { conversationsService } from '../services/conversations.service';
 import { experimentsService } from '../services/experiments.service';
 import { formsService } from '../services/forms.service';
 import { usersService } from '../services/users.service';
-import { matchCurrentDevice } from '../services/sessionMatching';
+import { matchCurrentDevice, publicExperimentInfoFor } from '../services/sessionMatching';
 import { getClientIp } from '../utils/clientIp';
 import { requestHandler } from '../utils/requestHandler';
 
@@ -22,6 +22,16 @@ class ExperimentsController {
         const experimentId = req.params.id as string;
         const experiments = await experimentsService.getExperiment(experimentId);
         res.status(200).send(experiments);
+    });
+
+    // Minimal, unauthenticated: just enough for the app to confirm "You are joining <title>".
+    getExperimentPublicInfo = requestHandler(async (req: Request, res: Response) => {
+        const info = await publicExperimentInfoFor(req.params.id as string);
+        if (!info) {
+            res.status(404).json({ message: 'Experiment not found' });
+            return;
+        }
+        res.status(200).json(info);
     });
 
     getExperimentContent = requestHandler(async (req: Request, res: Response) => {

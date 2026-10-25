@@ -111,4 +111,26 @@ export const matchDevice = async (
     return { status: 200, body: { experimentId: decision.session.experimentId, experimentTitle } };
 };
 
+const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+
+/**
+ * What the app may learn about an experiment before the participant has joined it: its title and
+ * whether it is active, nothing else (the full experiment document contains prompts and settings).
+ * Returns null for an invalid or unknown id.
+ */
+export const publicExperimentInfo = async (
+    db: Db,
+    experimentId: string,
+): Promise<{ title: string | null; isActive: boolean } | null> => {
+    if (!OBJECT_ID_PATTERN.test(String(experimentId))) return null;
+    const experiment = await db
+        .collection('experiments')
+        .findOne({ _id: new mongoose.Types.ObjectId(experimentId) }, { projection: { title: 1, isActive: 1 } });
+    if (!experiment) return null;
+    return { title: experiment.title ?? null, isActive: experiment.isActive !== false };
+};
+
+export const publicExperimentInfoFor = (experimentId: string) =>
+    publicExperimentInfo(mongoose.connection.db as unknown as Db, experimentId);
+
 export const matchCurrentDevice = (ip: string) => matchDevice(mongoose.connection.db as unknown as Db, ip);

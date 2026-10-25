@@ -93,7 +93,20 @@ See the runbook.
 **Rotating credentials** — Atlas user password (then Render env `MONGODB_URL` in *both* services' config), `JWT_SECRET_KEY` (logs everyone out),
 OpenAI/Anthropic keys, Firebase service account (create new key in Firebase console, replace, delete the old one).
 
-## 6. What to set up next
+## 6. Testing the Android join flow
+
+The "Open Lexi" hand-off, the confirmation screen and the manual fallback are code-complete but were written without being compiled. Do this once, in this order:
+
+1. **Unit tests.** In Android Studio open `android-app/`, let Gradle sync, then right-click `app/src/test/.../JoinLinkTest.kt` → *Run*. All 7 tests should pass. If the project does not compile, send me the error text.
+2. **Build and install** the debug app on a phone (or emulator). Keep `SERVER_URL` and `FRONTEND_BASE_URL` in `app/build.gradle.kts` pointing at your deployed servers.
+3. **Deep link.** With the app installed run `adb shell am start -a android.intent.action.VIEW -d "lexi://join/<experimentId>"` (or open the join page on the phone and tap **Open Lexi**). You should see "You are joining *Study name*"; **Continue** opens the chat.
+4. **Wrong or unknown id.** `lexi://join/000000000000000000000000` should say the invitation is not valid and offer manual entry.
+5. **Manual fallback.** On a fresh install, open the app from the launcher with no link. If it cannot match you, paste your `.../join/<id>` link: it must be accepted.
+6. **Same experiment again** (tap **Open Lexi** after setup): it should open the chat directly without asking.
+
+`apk_match_events` (see DATA_AND_ANALYSIS) shows how often the automatic match worked, was ambiguous, or found nothing.
+
+## 7. What to set up next
 
 - Run the Python engine as its own Render **Background Worker**, and write a heartbeat document to Mongo that something alerts on.
 - Sign and minify the Android release; disable cloud backup.

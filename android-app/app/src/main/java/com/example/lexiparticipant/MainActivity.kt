@@ -44,6 +44,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+
+        // "Open Lexi" button on the invitation page: lexi://join/<experimentId>
+        val joinId = JoinLink.idFromDeepLink(intent.dataString)
+        if (joinId != null) {
+            handleJoinLink(joinId)
+            return
+        }
+
         val deepLinkUrl = intent.getStringExtra("deepLinkUrl")
         if (!deepLinkUrl.isNullOrEmpty()) {
             // Mark that we opened from notification (for React app to check)
@@ -92,6 +100,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // "Open Lexi" button on the invitation page: lexi://join/<experimentId>
+        val joinId = JoinLink.idFromDeepLink(intent?.dataString)
+        if (joinId != null) {
+            handleJoinLink(joinId)
+            return
+        }
+
         val savedUrl = prefs.getString(KEY_EXPERIMENT_URL, null)
 
         if (savedUrl != null) {
@@ -102,31 +117,67 @@ class MainActivity : ComponentActivity() {
             setContent { MaterialTheme { MatchingScreen() } }
 
             CoroutineScope(Dispatchers.IO).launch {
-                val experimentUrl = tryMatchSession()
+                val match = tryMatchSession()
                 withContext(Dispatchers.Main) {
-                    if (experimentUrl != null) {
-                        prefs.edit().putString(KEY_EXPERIMENT_URL, experimentUrl).apply()
-                        setContent { MaterialTheme { ChatScreen(url = experimentUrl, onWebViewCreated = { activeWebView = it }) } }
+                    if (match != null) {
+                        // A match by network address can be wrong (shared Wi-Fi): always let the participant confirm it.
+                        showJoinConfirmation(match.experimentId, match.title)
                     } else {
-                        // No automatic match — fall back to the manual setup screen.
-                        setContent {
-                            MaterialTheme {
-                                SetupScreen(onContinue = { url ->
-                                    prefs.edit().putString(KEY_EXPERIMENT_URL, url).apply()
-                                    setContent { MaterialTheme { ChatScreen(url = url, onWebViewCreated = { activeWebView = it }) } }
-                                })
-                            }
-                        }
+                        // No automatic match (or an ambiguous one) - fall back to the manual setup screen.
+                        showManualSetup()
                     }
                 }
             }
         }
     }
 
+    // A join link (lexi://join/<id>) was opened. If it is the experiment this phone is already set up for,
+    // just open it; otherwise ask the participant to confirm before switching.
+    private fun handleJoinLink(experimentId: String) {
+        val savedUrl = prefs.getString(KEY_EXPERIMENT_URL, null)
+        if (savedUrl != null && JoinLink.idFromPastedLink(savedUrl) == experimentId) {
+            setContent { MaterialTheme { ChatScreen(url = savedUrl, onWebViewCreated = { activeWebView = it }) } }
+        } else {
+            showJoinConfirmation(experimentId, null)
+        }
+    }
+
+    // "You are joining <study>" - the choice is stored permanently, so the participant confirms it.
+    private fun showJoinConfirmation(experimentId: String, knownTitle: String?) {
+        setContent {
+            MaterialTheme {
+                JoinConfirmScreen(
+                    experimentId = experimentId,
+                    knownTitle = knownTitle,
+                    onConfirm = {
+                        // The URL is built from this build's own frontend and the validated id only.
+                        val url = JoinLink.experimentUrl(BuildConfig.FRONTEND_BASE_URL, experimentId)
+                        prefs.edit().putString(KEY_EXPERIMENT_URL, url).apply()
+                        setContent { MaterialTheme { ChatScreen(url = url, onWebViewCreated = { activeWebView = it }) } }
+                    },
+                    onReject = { showManualSetup() },
+                )
+            }
+        }
+    }
+
+    private fun showManualSetup() {
+        setContent {
+            MaterialTheme {
+                SetupScreen(onContinue = { url ->
+                    prefs.edit().putString(KEY_EXPERIMENT_URL, url).apply()
+                    setContent { MaterialTheme { ChatScreen(url = url, onWebViewCreated = { activeWebView = it }) } }
+                })
+            }
+        }
+    }
+
     // Calls GET /experiments/match-session on the server.
-    // Returns the full WebView URL if a match is found, null otherwise.
+    // Returns the matched experiment (id and title) if the server found one, null otherwise.
+    // The server answers "no experiment" both when nothing matches and when the network address is
+    // ambiguous (it was used to download for different experiments); either way the participant is asked.
     // Retries once to handle Render's ~40s cold-start on the free tier.
-    private fun tryMatchSession(): String? {
+    private fun tryMatchSession(): ExperimentMatch? {
         repeat(2) { attempt ->
             try {
                 val url = URL("${BuildConfig.SERVER_URL}/experiments/match-session")
@@ -141,9 +192,9 @@ class MainActivity : ComponentActivity() {
                 if (code == 200) {
                     val body = conn.inputStream.bufferedReader().readText()
                     val json = JSONObject(body)
-                    val experimentId = json.optString("experimentId", "")
-                    if (experimentId.isNotEmpty()) {
-                        return "${BuildConfig.FRONTEND_BASE_URL}/e/$experimentId"
+                    val experimentId = json.stringOrNull("experimentId")
+                    if (JoinLink.isExperimentId(experimentId)) {
+                        return ExperimentMatch(experimentId!!.lowercase(), json.stringOrNull("experimentTitle"))
                     }
                     // Server responded but no match found — don't retry.
                     android.util.Log.w("Lexi", "match-session: no match (attempt ${attempt + 1})")
@@ -201,7 +252,7 @@ private fun SetupScreen(onContinue: (String) -> Unit) {
             Text(text = "Lexi Experiment", style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Could not detect your experiment automatically. Please paste the participant link you received.",
+                text = "Could not detect your experiment automatically. Please paste the invitation link you received.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -225,21 +276,28 @@ private fun SetupScreen(onContinue: (String) -> Unit) {
                     if (!url.startsWith("http://") && !url.startsWith("https://")) {
                         error = "URL must start with http:// or https://"; return@Button
                     }
-                    // Extract experiment ID — expected format: .../e/<24-char-hex-id>
-                    val experimentId = Regex("/e/([a-fA-F0-9]{24})").find(url)?.groupValues?.get(1)
+                    // Accepts the invitation link (.../join/<id>) or a web app link (.../e/<id>).
+                    val experimentId = JoinLink.idFromPastedLink(url)
                     if (experimentId == null) {
-                        error = "Invalid link — experiment ID not found in URL."; return@Button
+                        error = "Invalid link - experiment ID not found in URL."; return@Button
                     }
                     checking = true
                     error = null
                     CoroutineScope(Dispatchers.IO).launch {
-                        val exists = verifyExperimentExists(experimentId)
+                        val result = lookupExperiment(experimentId)
                         withContext(Dispatchers.Main) {
                             checking = false
-                            if (exists) {
-                                onContinue(url)
-                            } else {
-                                error = "Experiment not found. Please check the link."
+                            when (result) {
+                                is Lookup.Found -> {
+                                    // Only the id is taken from what was pasted; the URL is this build's own.
+                                    onContinue(JoinLink.experimentUrl(BuildConfig.FRONTEND_BASE_URL, experimentId))
+                                }
+                                is Lookup.NotFound -> {
+                                    error = "Experiment not found. Please check the link."
+                                }
+                                is Lookup.Unreachable -> {
+                                    error = "Could not reach the server. Check your connection and try again."
+                                }
                             }
                         }
                     }
@@ -253,18 +311,118 @@ private fun SetupScreen(onContinue: (String) -> Unit) {
     }
 }
 
-// Calls GET /experiments/:id to verify the experiment exists in the database.
-private fun verifyExperimentExists(experimentId: String): Boolean {
+// Result of asking the server about an experiment before the participant joins it.
+private sealed class Lookup {
+    data class Found(val title: String?) : Lookup()
+    object NotFound : Lookup()
+    object Unreachable : Lookup()
+}
+
+// An experiment the server matched to this phone's first launch.
+private data class ExperimentMatch(val experimentId: String, val title: String?)
+
+// A string field of a JSON object, or null if it is missing, null or blank.
+// (org.json's optString turns a JSON null into the text "null".)
+private fun JSONObject.stringOrNull(name: String): String? =
+    if (isNull(name)) null else optString(name).ifBlank { null }
+
+// Calls GET /experiments/:id/public: the title and whether the experiment is active, nothing else.
+private fun lookupExperiment(experimentId: String): Lookup {
     return try {
-        val url  = URL("${BuildConfig.SERVER_URL}/experiments/$experimentId")
+        val url  = URL("${BuildConfig.SERVER_URL}/experiments/$experimentId/public")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod  = "GET"
-        conn.connectTimeout = 10_000
-        conn.readTimeout    = 10_000
-        conn.responseCode == 200
+        conn.connectTimeout = 15_000
+        conn.readTimeout    = 15_000
+        conn.setRequestProperty("Accept", "application/json")
+        if (conn.responseCode == 200) {
+            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            if (json.optBoolean("isActive", true)) Lookup.Found(json.stringOrNull("title")) else Lookup.NotFound
+        } else {
+            Lookup.NotFound
+        }
     } catch (e: Exception) {
-        android.util.Log.e("Lexi", "verifyExperiment failed: ${e.message}")
-        false
+        android.util.Log.e("Lexi", "lookupExperiment failed: ${e.message}")
+        Lookup.Unreachable
+    }
+}
+
+// "You are joining <study>" - shown before the experiment is stored on the phone.
+@Composable
+private fun JoinConfirmScreen(
+    experimentId: String,
+    knownTitle: String?,
+    onConfirm: () -> Unit,
+    onReject: () -> Unit,
+) {
+    var lookup by remember { mutableStateOf<Lookup?>(if (knownTitle != null) Lookup.Found(knownTitle) else null) }
+    var attempt by remember { mutableStateOf(0) }
+
+    LaunchedEffect(experimentId, attempt) {
+        if (knownTitle == null) {
+            lookup = null
+            lookup = withContext(Dispatchers.IO) { lookupExperiment(experimentId) }
+        }
+    }
+
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(text = "Lexi", style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            when (val result = lookup) {
+                null -> {
+                    Text(text = "Checking your invitation...", style = MaterialTheme.typography.bodyMedium)
+                }
+                is Lookup.Found -> {
+                    Text(text = "You are joining:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = result.title ?: "this study", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Please make sure this is the study you were invited to.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
+                        Text("Continue")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = onReject, modifier = Modifier.fillMaxWidth()) {
+                        Text("This is not my study")
+                    }
+                }
+                is Lookup.NotFound -> {
+                    Text(
+                        text = "This invitation is not valid, or the study is closed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onReject, modifier = Modifier.fillMaxWidth()) {
+                        Text("Enter my link manually")
+                    }
+                }
+                is Lookup.Unreachable -> {
+                    Text(
+                        text = "Could not reach the server. Please check your internet connection.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { attempt += 1 }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Try again")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = onReject, modifier = Modifier.fillMaxWidth()) {
+                        Text("Enter my link manually")
+                    }
+                }
+            }
+        }
     }
 }
 
