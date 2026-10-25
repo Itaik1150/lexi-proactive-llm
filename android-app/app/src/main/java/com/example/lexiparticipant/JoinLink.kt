@@ -30,6 +30,17 @@ object JoinLink {
     fun idFromPastedLink(text: String?): String? =
         text?.trim()?.let { WEB_LINK.find(it)?.groupValues?.get(1)?.lowercase() }
 
+    /**
+     * The URL a notification tap opens: this build's own frontend plus two validated ids.
+     * Null unless BOTH ids are exactly 24 hex characters.
+     */
+    fun conversationUrl(frontendBase: String, experimentId: String?, conversationId: String?): String? =
+        if (isExperimentId(experimentId) && isExperimentId(conversationId)) {
+            "${experimentUrl(frontendBase, experimentId!!)}/c/${conversationId!!.lowercase()}"
+        } else {
+            null
+        }
+
     /** The URL the app loads for an experiment: always this build's own frontend plus a validated id. */
     fun experimentUrl(frontendBase: String, experimentId: String): String =
         "${frontendBase.trimEnd('/')}/e/${experimentId.lowercase()}"

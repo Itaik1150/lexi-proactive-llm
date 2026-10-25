@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val deepLinkUrl = allowedDeepLink(intent.getStringExtra("deepLinkUrl"))
+        val deepLinkUrl = notificationUrl(intent)
         if (deepLinkUrl != null) {
             // Mark that we opened from notification (for React app to check)
             bridgePrefs.edit().putBoolean(AndroidBridge.KEY_OPENED_FROM_NOTIFICATION, true).apply()
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
         }
 
         // Only a link into this build's own web app may be loaded (see UrlPolicy); anything else is ignored.
-        val deepLinkUrl = allowedDeepLink(intent?.getStringExtra("deepLinkUrl"))
+        val deepLinkUrl = notificationUrl(intent)
 
         // If this launch came from a notification tap, honour the deep link
         // immediately - regardless of whether a savedUrl exists.
@@ -135,6 +135,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // The conversation a notification tap should open. A notification posted by LexiMessagingService carries a
+    // ready-made deepLinkUrl. A push that Android shows by itself (the app is in the background or closed, which
+    // is the normal case for a nudge) carries only the raw conversationId and experimentId, so both forms are
+    // accepted, and the URL is always built from this build's own web app and validated ids.
+    private fun notificationUrl(source: Intent?): String? {
+        allowedDeepLink(source?.getStringExtra("deepLinkUrl"))?.let { return it }
+        return JoinLink.conversationUrl(
+            BuildConfig.FRONTEND_BASE_URL,
+            source?.getStringExtra("experimentId"),
+            source?.getStringExtra("conversationId"),
+        )
     }
 
     // A link passed in an intent extra is used only if it points into this build's own web app.

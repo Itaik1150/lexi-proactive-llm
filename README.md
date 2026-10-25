@@ -78,6 +78,7 @@ For the Android app open [`android-app/`](android-app) in Android Studio, add yo
 | [`docs/DATA_AND_ANALYSIS.md`](docs/DATA_AND_ANALYSIS.md) | log schema, queries, analysis pitfalls |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | setup, deployment, runbook |
 | [`docs/REVIEW.md`](docs/REVIEW.md) | known problems and what to fix first |
+| [`docs/ANDROID_TEST_GUIDE.md`](docs/ANDROID_TEST_GUIDE.md) | step-by-step test of the participant app |
 | [`docs/UPSTREAM_DELTA.md`](docs/UPSTREAM_DELTA.md) | which code is Lexi's and which is the thesis's |
 | [`docs/archive/`](docs/archive) | historical implementation notes |
 

@@ -67,6 +67,29 @@ class JoinLinkTest {
     }
 
     @Test
+    fun aNotificationTapOpensTheConversationBuiltFromValidatedIds() {
+        val conv = "64b7f0f0f0f0f0f0f0f0f0b2"
+        assertEquals(
+            "https://app.example.org/e/$id/c/$conv",
+            JoinLink.conversationUrl("https://app.example.org/", id, conv),
+        )
+        assertEquals(
+            "https://app.example.org/e/$id/c/$conv",
+            JoinLink.conversationUrl("https://app.example.org", id.uppercase(), conv.uppercase()),
+        )
+    }
+
+    @Test
+    fun aNotificationWithAMissingOrMalformedIdOpensNothing() {
+        val conv = "64b7f0f0f0f0f0f0f0f0f0b2"
+        assertNull(JoinLink.conversationUrl("https://app.example.org", null, conv))
+        assertNull(JoinLink.conversationUrl("https://app.example.org", id, null))
+        assertNull(JoinLink.conversationUrl("https://app.example.org", id, "abc"))
+        assertNull(JoinLink.conversationUrl("https://app.example.org", "../evil", conv))
+        assertNull(JoinLink.conversationUrl("https://app.example.org", id, "$conv/../x"))
+    }
+
+    @Test
     fun experimentIdValidation() {
         assertTrue(JoinLink.isExperimentId(id))
         assertTrue(JoinLink.isExperimentId(id.uppercase()))

@@ -95,25 +95,11 @@ OpenAI/Anthropic keys, Firebase service account (create new key in Firebase cons
 
 ## 6. Testing the Android app changes
 
-The join hand-off (V9) and the hardening (S3, S6) are code-complete but were written without being compiled. Do this once, in this order:
-
-**Build and unit tests**
-1. In Android Studio open `android-app/`, let Gradle sync, then run the unit tests: right-click `app/src/test/java/com/example/lexiparticipant` → *Run Tests*. Expect `JoinLinkTest` (7) and `UrlPolicyTest` (7) to pass. If the project does not compile, send me the error text.
-2. Build and install the **debug** app on a phone. Keep `SERVER_URL` and `FRONTEND_BASE_URL` in `app/build.gradle.kts` on your deployed servers (https).
-
-**Joining (V9)**
-3. `adb shell am start -a android.intent.action.VIEW -d "lexi://join/<experimentId>"` (or open the join page on the phone and tap **Open Lexi**) → "You are joining *Study name*"; **Continue** opens the chat.
-4. `lexi://join/000000000000000000000000` → "not valid" with manual entry.
-5. Fresh install, open from the launcher with no link: it either shows the confirmation (address matched) or the manual screen; paste your `.../join/<id>` link → accepted.
-6. Tap **Open Lexi** again after setup → opens the chat directly.
-
-**Hardening (S3, S6)**
-7. **Notification tap.** Send a test notification, lock the phone, check the lock screen shows only "You have a new message" (with `HIDE_TEXT_ON_LOCK_SCREEN = true`), unlock, tap it → the right conversation opens. After the tap, the annotation/feedback control should behave as intended (the "opened from notification" flag now reaches the web app).
-8. **Outside links.** If a message contains a link to another website, tapping it must open the normal browser, not inside Lexi.
-9. **Bad deep link.** `adb shell am start -n com.example.lexiparticipant/.MainActivity --es deepLinkUrl "https://example.com"` must NOT load example.com in the app (the app opens normally).
-10. **Existing installs.** On a phone that already has a saved study, update the app: it should open the same study without asking.
-
-`apk_match_events` (see DATA_AND_ANALYSIS) shows how often the automatic match worked, was ambiguous, or found nothing.
+The join hand-off (V9) and the hardening (S3, S6) are code-complete but were written without being compiled.
+**Follow [`ANDROID_TEST_GUIDE.md`](ANDROID_TEST_GUIDE.md)**: it has every click and command, the expected result of each
+step, a table to send back, and a troubleshooting list. In short: run the 17 unit tests in Android Studio, build and install the
+debug app, test the join link and the manual fallback, send yourself a test notification
+(`logic-python/tools/send_test_push.py`) with the app open, in the background and closed, and try the outside-link and bad-link cases.
 
 **Decisions for you**
 - `HIDE_TEXT_ON_LOCK_SCREEN` (in `app/build.gradle.kts`): `true` hides the message text on a locked phone, which protects participants but means they read the message after unlocking; `false` keeps today's behaviour. This changes what participants see without unlocking, so choose it deliberately and record it with the study design.
