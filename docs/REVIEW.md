@@ -137,6 +137,17 @@ compare are not the conditions you defined.
 message, not extraction time; (d) choose among heuristics that currently have material, or declare fallback part of the
 treatment and analyse intention-to-treat.
 
+*Measured on 25 Oct 2026* (read-only query on `proactive_logs`; 263 sent rows, 7 Aug – 14 Oct, one experiment, 6 participants, all written before the V2 logger so only successful sends exist):
+
+| Heuristic | Sends | Fallback (no usable memory) | Memory-based |
+|---|---:|---:|---:|
+| Affective | 203 | **176 (87 %)** | 27 |
+| Temporal | 28 | **26 (93 %)** | 2 |
+| Generic | 32 | 0 | 32 (by definition) |
+| Behavioural gap | 0 | — | — |
+
+The cause is supply versus demand, not a bug in one heuristic: the participants wrote 109, 18, 10, 18, 11 and 31 messages in total against 130, 43, 31, 26, 20 and 13 sends, and each nudge creates a new conversation, so most conversations never contain a participant message. The 36 emotional memories that were extracted were **all used once** (none expired unused), and only 5 future events were ever mentioned. A memory can fire a nudge only once, so with a nudge per day the fallback rate is set by how much participants write. Caveats: this is a small demo/friends experiment, one account sent 130 nudges (probably development testing), and V6 (replies in already-scanned conversations were missed) was fixed after these rows were written, so the rate may be lower with the current code. The weights of that experiment are currently 100 % Affective, so it has no between-condition comparison at all.
+
 ### V6. Conversations were scanned once and never again **[V]** — ✅ fixed
 Affective and Gap marked a conversation as scanned after the first pass, even if it was empty. So an ongoing chat analysed at message 3 never had
 messages 4+ read, and the **pre-created notification conversation has no participant messages when the next cycle runs**, so it was marked scanned
