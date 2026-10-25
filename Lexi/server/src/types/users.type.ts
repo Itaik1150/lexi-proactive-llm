@@ -24,6 +24,7 @@ export interface IUser {
     is_demo_finished?: boolean;
     proactiveMemory?: {
         injected_prompt_original?: string;
+        /** Legacy: written by earlier engine versions (2h expiry that no longer exists); removed by greetingReset. */
         injected_prompt_reset_after?: Date;
         linked_memory_id?: string;
         linked_conversation_id?: string;

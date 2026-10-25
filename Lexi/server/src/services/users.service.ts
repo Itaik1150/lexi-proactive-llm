@@ -2,6 +2,7 @@
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
+import { greetingReset } from './greetingReset';
 import mongoose from 'mongoose';
 import { UsersModel } from '../models/UsersModel';
 import { IAgent, IUser } from '../types';
@@ -156,34 +157,11 @@ class UsersService {
     };
 
     /**
-     * Called when a user sends their first message after receiving a proactive notification.
-     * Restores agent.firstChatSentence to the original greeting that was saved before
-     * the proactive message was injected, then clears the saved original.
-     * No-op if no injected prompt is pending for this user.
+     * Called when a participant replies. Restores the normal greeting if a proactive opener is
+     * injected (single atomic update, see services/greetingReset.ts). No-op otherwise. Never throws.
      */
     resetInjectedPromptIfNeeded = async (userId: string): Promise<void> => {
-        try {
-            const user = await UsersModel.findOne(
-                { _id: new mongoose.Types.ObjectId(userId), 'proactiveMemory.injected_prompt_original': { $exists: true } },
-                { 'proactiveMemory.injected_prompt_original': 1 },
-            ).lean();
-
-            if (!user) return;
-
-            const original = (user as any).proactiveMemory?.injected_prompt_original;
-            if (!original) return;
-
-            await UsersModel.updateOne(
-                { _id: new mongoose.Types.ObjectId(userId) },
-                {
-                    $set: { 'agent.firstChatSentence': original },
-                    $unset: { 'proactiveMemory.injected_prompt_original': '' },
-                },
-            );
-            console.log(`🔄 Restored firstChatSentence for user ${userId} after proactive reply`);
-        } catch (err) {
-            console.error(`resetInjectedPromptIfNeeded error for user ${userId}:`, err);
-        }
+        await greetingReset.restoreGreeting(userId);
     };
 
     updateFCMToken = async (userId: string, fcmToken: string): Promise<IUser> => {

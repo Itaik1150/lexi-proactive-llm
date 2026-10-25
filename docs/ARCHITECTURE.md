@@ -59,7 +59,7 @@ Exactly which files are yours and which are upstream: [`UPSTREAM_DELTA.md`](UPST
    `proactiveMemory.injected_prompt_original`.
 7. **Gatekeeper**: re-read `isProactive`; drop the send if the participant was switched off meanwhile.
 8. **Pre-create a conversation** via `POST /conversations/create` on the Node API. Node builds the first message from the injected
-   sentence and flags it `isProactiveOpener`.
+   sentence and flags it `isProactiveOpener`. The engine then checks that the new conversation's first message really is the proactive message flagged as the opener, and rolls back if not.
 9. **Send FCM** with `conversationId` and `experimentId` in the data payload.
 10. **Log** and clean up. Every attempt — sends, skips, control draws and failures — writes one `proactive_logs` document with its outcome and reason; a successful send also calls `heuristic.clear_after_send()`. Later the API stamps `opened_at` and `first_reply_at` on the row when the participant opens and answers the conversation.
 
@@ -68,7 +68,7 @@ Before step 6 the engine snapshots the greeting fields it will overwrite; if any
 
 ### After the participant taps the notification
 The app opens the WebView on `/…/conversations/<id>`. When the participant replies (or finishes, or a timer expires),
-Node restores the original greeting (`resetInjectedPromptIfNeeded` and related paths). For the Affective condition,
+Node restores the original greeting through one atomic update (`services/greetingReset.ts`), triggered by the participant's reply or by finishing a conversation; there is no time-based expiry. For the Affective condition,
 `getProactiveContext` also feeds the memory and the last 7 messages of the source conversation into the chat model's system prompt.
 
 ## 4. The four heuristics

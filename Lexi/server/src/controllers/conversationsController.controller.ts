@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { conversationsService } from '../services/conversations.service';
+import { greetingReset } from '../services/greetingReset';
 import { proactiveLogsService } from '../services/proactiveLogs.service';
 import { requestHandler } from '../utils/requestHandler';
 
@@ -12,10 +13,9 @@ class ConvesationsController {
 
             const savedResponse = await conversationsService.message(message, conversationId);
 
-            // When the user (not AI) sends a message, the proactive opener has been
-            // "consumed" — reset firstChatSentence back to the original greeting.
+            // The participant's reply also restores the normal greeting: conversationsService.message()
+            // does that (services/greetingReset.ts). Here we only record the funnel step.
             if (message.role === 'user') {
-                this.resetProactivePromptOnInteraction(conversationId).catch(() => {});
                 proactiveLogsService.markReplied(conversationId).catch(() => {});
             }
 
@@ -60,7 +60,6 @@ class ConvesationsController {
             const savedResponse = await conversationsService.message(message, conversationId, streamResponse);
 
             if (role === 'user') {
-                this.resetProactivePromptOnInteraction(conversationId).catch(() => {});
                 proactiveLogsService.markReplied(conversationId).catch(() => {});
             }
 
@@ -139,48 +138,6 @@ class ConvesationsController {
         res.status(200).send(conversation);
     });
 
-    /**
-     * Called when the user sends their first message in any conversation.
-     * If the user still has a proactive opener injected (injected_prompt_reset_after is set),
-     * we restore firstChatSentence to the original greeting immediately.
-     */
-    private async resetProactivePromptOnInteraction(conversationId: string): Promise<void> {
-        try {
-            const db = mongoose.connection.db;
-
-            const meta = await db.collection('metadata_conversations').findOne(
-                { _id: new mongoose.Types.ObjectId(conversationId) },
-                { projection: { userId: 1 } },
-            );
-            if (!meta?.userId) return;
-
-            const user = await db.collection('users').findOne(
-                {
-                    _id: new mongoose.Types.ObjectId(String(meta.userId)),
-                    'proactiveMemory.injected_prompt_reset_after': { $exists: true },
-                },
-                { projection: { 'proactiveMemory.injected_prompt_original': 1 } },
-            );
-            if (!user) return;
-
-            const original = user.proactiveMemory?.injected_prompt_original ?? '';
-
-            await db.collection('users').updateOne(
-                { _id: user._id },
-                {
-                    $set:   { 'agent.firstChatSentence': original },
-                    $unset: {
-                        'proactiveMemory.injected_prompt_original':    '',
-                        'proactiveMemory.injected_prompt_reset_after': '',
-                    },
-                },
-            );
-            console.log(`[proactive] reset firstChatSentence for user ${meta.userId} after user interaction`);
-        } catch (_) {
-            // Non-critical
-        }
-    }
-
     updateConversationMetadata = requestHandler(async (req: Request, res: Response) => {
         const { conversationId, data, isPreConversation } = req.body;
 
@@ -194,8 +151,9 @@ class ConvesationsController {
 
         await conversationsService.finishConversation(conversationId, experimentId, isAdmin);
 
-        // Reset the proactive opener when the user finishes a conversation
-        this.resetProactivePromptOnInteraction(conversationId).catch(() => {});
+        // Restore the normal greeting when the participant finishes a conversation (the participant's
+        // reply already does this; see services/greetingReset.ts).
+        greetingReset.restoreGreetingForConversation(conversationId).catch(() => {});
 
         res.status(200).send();
     });

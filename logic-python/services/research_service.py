@@ -551,6 +551,31 @@ class ResearchService:
             except Exception:
                 pass
 
+    def _verify_opener(self, conversation_id: str, expected_text: str) -> Optional[bool]:
+        """
+        Check that the pre-created conversation really starts with the proactive message, flagged as
+        the proactive opener. True: yes. False: no (e.g. the greeting was restored in the instant between
+        injecting and creating the conversation, so it began with the normal greeting). None: could not
+        be checked (database problem), in which case the send is not blocked.
+        """
+        try:
+            if not mongodb_client.connect():
+                return None
+            first = mongodb_client.db["conversations"].find_one(
+                {"conversationId": conversation_id, "messageNumber": 1}
+            )
+            if not first:
+                return False
+            return first.get("content") == expected_text and first.get("isProactiveOpener") is True
+        except Exception as e:
+            print(f"⚠️  Could not verify the opener of conversation {conversation_id[:8]}: {e}")
+            return None
+        finally:
+            try:
+                mongodb_client.disconnect()
+            except Exception:
+                pass
+
     def _rollback_send(self, user_id: str, experiment_id: str, snapshot: Optional[dict],
                        conversation_id: Optional[str], heuristic) -> List[str]:
         """
@@ -792,6 +817,18 @@ class ResearchService:
                     continue
 
                 print(f"📝 [{username}] Created NEW conversation {conversation_id} with proactive opener as messageNumber: 1")
+
+                # The conversation must really begin with the proactive message: if the greeting was
+                # restored between injecting and creating it, the participant would tap a notification
+                # that opens onto the normal greeting.
+                if self._verify_opener(conversation_id, message["generated_message"]) is False:
+                    print(f"⚠️  [{username}] conversation {conversation_id} does not start with the proactive message — rolling back")
+                    results["fcm_failed"] += 1
+                    undone = self._rollback_send(user_id, experiment_id_str, snapshot, conversation_id, heuristic)
+                    record(log_schema.CONVERSATION_FAILED,
+                           reason=self._with_rollback("opener mismatch: conversation did not start with the proactive message", undone),
+                           message=message, conversation_id=conversation_id)
+                    continue
 
                 # Update the user doc to link this conversation ID for context injection
                 if mongodb_client.connect():

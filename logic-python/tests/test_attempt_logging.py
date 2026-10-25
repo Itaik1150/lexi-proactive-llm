@@ -100,6 +100,7 @@ class EveryAttemptIsLogged(unittest.TestCase):
         svc.inject_prompt = MagicMock(return_value=True)
         svc._snapshot_injection_state = MagicMock(return_value={"first_chat_sentence": "Hello"})
         svc._restore_injection_state = MagicMock(return_value=True)
+        svc._verify_opener = MagicMock(return_value=True)
         svc._discard_conversation = MagicMock(return_value=True)
         svc._create_conversation = MagicMock(return_value="conv-1")
         svc.clear_stale_fcm_token = MagicMock()

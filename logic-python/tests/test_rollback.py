@@ -68,6 +68,7 @@ class RollbackOfFailedSends(unittest.TestCase):
         svc.inject_prompt = MagicMock(return_value=True)
         svc._snapshot_injection_state = MagicMock(return_value=dict(SNAPSHOT))
         svc._restore_injection_state = MagicMock(return_value=True)
+        svc._verify_opener = MagicMock(return_value=True)
         svc._discard_conversation = MagicMock(return_value=True)
         svc._create_conversation = MagicMock(return_value="conv-1")
         svc.clear_stale_fcm_token = MagicMock()
@@ -144,6 +145,21 @@ class RollbackOfFailedSends(unittest.TestCase):
         self.heuristic.undo_selection.assert_called_once()
         self.assertIn("snapshot", kw["reason"])
 
+    def test_a_conversation_that_does_not_start_with_the_message_is_rolled_back_before_any_push(self):
+        self.svc._verify_opener.return_value = False
+        status, kw = self.run_loop()
+        self.assertEqual(status, log_schema.CONVERSATION_FAILED)
+        self.assertIn("opener mismatch", kw["reason"])
+        self.assertEqual(kw["conversation_id"], "conv-1")
+        self.svc.fcm_service.send_to_user.assert_not_called()
+        self.svc._discard_conversation.assert_called_once()
+        self.svc._restore_injection_state.assert_called_once()
+        self.heuristic.undo_selection.assert_called_once()
+
+    def test_an_opener_that_could_not_be_checked_does_not_block_the_send(self):
+        self.svc._verify_opener.return_value = None
+        self.assertEqual(self.run_loop()[0], log_schema.SENT)
+
     def test_a_failing_rollback_step_never_breaks_the_cycle_and_others_still_run(self):
         self.svc.fcm_service.send_to_user.side_effect = RuntimeError("fcm down")
         self.svc._restore_injection_state.side_effect = RuntimeError("db hiccup")
@@ -184,6 +200,39 @@ class DiscardConversation(unittest.TestCase):
         self.cols["conversations"].delete_many.assert_not_called()
         self.cols["metadata_conversations"].delete_one.assert_not_called()
         self.cols["users"].update_one.assert_not_called()
+
+
+class VerifyOpener(unittest.TestCase):
+    def setUp(self):
+        self.svc = object.__new__(ResearchService)
+        patcher = patch.object(rs_module, "mongodb_client")
+        self.mc = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mc.connect.return_value = True
+        self.find_one = self.mc.db.__getitem__.return_value.find_one
+
+    def test_matching_proactive_opener_passes(self):
+        self.find_one.return_value = {"content": "Hi!", "isProactiveOpener": True}
+        self.assertIs(self.svc._verify_opener("c1", "Hi!"), True)
+        self.assertEqual(self.find_one.call_args.args[0], {"conversationId": "c1", "messageNumber": 1})
+
+    def test_normal_greeting_instead_of_the_proactive_message_fails(self):
+        self.find_one.return_value = {"content": "Hello, what is on your mind?", "isProactiveOpener": False}
+        self.assertIs(self.svc._verify_opener("c1", "Hi!"), False)
+
+    def test_right_text_but_not_flagged_as_opener_fails(self):
+        self.find_one.return_value = {"content": "Hi!", "isProactiveOpener": False}
+        self.assertIs(self.svc._verify_opener("c1", "Hi!"), False)
+
+    def test_missing_first_message_fails(self):
+        self.find_one.return_value = None
+        self.assertIs(self.svc._verify_opener("c1", "Hi!"), False)
+
+    def test_a_database_problem_means_unknown_not_failure(self):
+        self.find_one.side_effect = RuntimeError("db down")
+        self.assertIsNone(self.svc._verify_opener("c1", "Hi!"))
+        self.mc.connect.return_value = False
+        self.assertIsNone(self.svc._verify_opener("c1", "Hi!"))
 
 
 class AffectiveUndo(unittest.TestCase):

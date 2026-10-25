@@ -1,5 +1,4 @@
 import { CookieOptions, Request, Response } from 'express';
-import mongoose from 'mongoose';
 import { usersService } from '../services/users.service';
 import { requestHandler } from '../utils/requestHandler';
 
@@ -60,39 +59,7 @@ class UsersController {
 
         res.cookie('token', newToken, cookieConfig);
         res.status(200).send(user);
-
-        // Fire-and-forget: reset expired proactive prompt if 2h have passed
-        this.expireProactivePromptIfNeeded(String(user._id)).catch(() => {});
     });
-
-    private async expireProactivePromptIfNeeded(userId: string): Promise<void> {
-        try {
-            const db = mongoose.connection.db;
-            const now = new Date();
-
-            const result = await db.collection('users').findOneAndUpdate(
-                {
-                    _id: new mongoose.Types.ObjectId(userId),
-                    'proactiveMemory.injected_prompt_reset_after': { $lte: now },
-                },
-                [
-                    {
-                        $set: {
-                            'agent.firstChatSentence': '$proactiveMemory.injected_prompt_original',
-                            'proactiveMemory.injected_prompt_original':    '$$REMOVE',
-                            'proactiveMemory.injected_prompt_reset_after': '$$REMOVE',
-                        },
-                    },
-                ],
-                { projection: { username: 1 } },
-            );
-            if (result) {
-                console.log(`[proactive] expired prompt reset for user ${userId} on app open`);
-            }
-        } catch (_) {
-            // Non-critical
-        }
-    }
 
     logout = requestHandler(async (req: Request, res: Response) => {
         res.clearCookie('token', { httpOnly: true, sameSite: 'none', secure: true });
