@@ -186,13 +186,13 @@ Run on **25 Oct 2026** on a Samsung SM-S916B (Android 16), debug build `1.4` (ve
 | C2 link to a study that does not exist | ✔ | "This invitation is not valid…" screen, saved study untouched |
 | C3 join link for the study already saved | ✔ | opens the study directly, no question |
 | C4 **Open Lexi** button on the real join page (Chrome) | ✔ | opened the app |
-| C5 manual paste fallback | not yet tested | |
+| C5 manual paste fallback | ✔ | nonsense (`hello`) gave the red error; the real `/join/<id>` link opened the study, still logged in; saved address is the build's own web address plus the id |
 | D1 tap a notification, app **closed** | ✔ | opened the exact conversation (before the fix: the study home) |
 | D1 tap a notification, app in the **background** | ✔ | opened the exact conversation; log: "opened from a notification" |
 | D1 notification while the app is **open on screen** | ✔ delivered | the app drew it itself (`vis=PRIVATE` with a public version) |
 | Lock screen, app open when it arrived | ✔ | showed only "You have a new message" |
 | Lock screen, app closed or in the background | expected full text | Android draws these itself; not changed (see "What is not covered") |
-| D2 link inside a message opens outside the app | not yet tested | |
+| D2 link inside a message opens outside the app | not testable | the chat shows links as plain text, so there is nothing to tap; the rule is covered by `UrlPolicyTest` and the navigation hook in `MainActivity` was not exercised on the phone |
 | D3 malicious `deepLinkUrl` / malformed ids | ✔ | app log shows it loaded the saved study and ignored `example.com` |
 | D5 backups off | ✔ | `ALLOW_BACKUP` absent from the installed app's flags |
 | Feedback control after a notification tap | not observed | the test push opened an existing conversation, not a fresh nudge |

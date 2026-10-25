@@ -33,10 +33,10 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | S2 | Push-token routes had no login | ✅ | `requireUser` middleware; id comes from the login cookie; response no longer returns the user record |
 | S4 | `/join` XSS and unvalidated writes | ✅ | id must be a real experiment (24 hex + exists), escaped, downloads rate-limited |
 | S5 | CORS accepted look-alike Vercel projects | ✅ | exact origins only; previews opt-in via `CORS_PREVIEW_SUFFIX`; refused origins no longer 500 |
-| S3 | Exported activity + JS bridge could be pointed at any URL | 🟡 | **device-tested 25 Oct:** hostile `deepLinkUrl` and malformed ids are ignored. Not yet tested: an outside link inside a message (ANDROID_TEST_GUIDE D2) |
+| S3 | Exported activity + JS bridge could be pointed at any URL | 🟡 | **device-tested 25 Oct:** hostile `deepLinkUrl` and malformed ids are ignored. An outside link inside a message could not be tested (the chat shows links as plain text); that rule is covered by unit tests only |
 | S6 | Android: backup, cleartext, lock screen, token logs | 🟡 | **device-tested 25 Oct:** backup off, lock-screen text hidden when the app draws the notification. Notifications Android draws itself (app closed or in the background) still show the full text (see V10 note, item 5). Still open: a signed release build and minification (need your keystore) |
 | R5 | Four overlapping opener-reset paths; a race could replace a fresh opener or blank the greeting | ✅ | one atomic reset; the two dormant paths removed; engine verifies the conversation really starts with the opener |
-| V9 | Join link can assign the wrong experiment | 🟡 | server fix deployed; **device-tested 25 Oct** (Samsung, Android 16): Open Lexi link and button, confirmation screen, invalid link. Not yet tested: the manual paste fallback (ANDROID_TEST_GUIDE C5) |
+| V9 | Join link can assign the wrong experiment | 🟡 | server fix deployed; **device-tested 25 Oct** (Samsung, Android 16): Open Lexi link and button, confirmation screen, invalid link, manual paste fallback. Remaining: the weaknesses listed under V9 (sideloaded installs give no referrer; the address match is a convenience) |
 | S12 | `GET /experiments/:id` returns the whole experiment (prompts, settings) to anyone, no login | ⬜ | new finding; see §2 |
 | V5 V7 V10–V13 | Fidelity, context asymmetry, LLM confounds, timezone | ⬜ | |
 | R1–R4 R9 S11 | Scheduler per experiment, worker + heartbeat, single Mongo client, tests, deps | ⬜ | |
