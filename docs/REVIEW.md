@@ -35,7 +35,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | S5 | CORS accepted look-alike Vercel projects | ✅ | exact origins only; previews opt-in via `CORS_PREVIEW_SUFFIX`; refused origins no longer 500 |
 | S3 S6 | WebView origin allow-list, Android hardening (backup, cleartext, debug APK, lock screen) | ⬜ | |
 | R5 | Four overlapping opener-reset paths; a race could replace a fresh opener or blank the greeting | ✅ | one atomic reset; the two dormant paths removed; engine verifies the conversation really starts with the opener |
-| V9 | Join link can assign the wrong experiment | ⬜ | |
+| V9 | Join link can assign the wrong experiment | 🟡 | server side done (never guesses; /64 IPv6 matching; match outcomes recorded). The app side needs a decision from you and a phone — see V9 |
 | V5 V7 V10–V13 | Fidelity, context asymmetry, LLM confounds, timezone | ⬜ | |
 | R1–R4 R9 S11 | Scheduler per experiment, worker + heartbeat, single Mongo client, tests, deps | ⬜ | |
 
@@ -163,11 +163,19 @@ sets `sessionStorage.fromNotification` on the first view of *any* one-message co
 so the proactive-feedback control appears for non-notification opens. Both contaminate the annotation data.
 *Fix:* have Python pass the exact conversation id it created and mark only that one; record a real "opened from notification" event.
 
-### V9. Deferred deep link can assign the wrong experiment **[V]**
-`matchSession` matches on client IP only (newest unmatched row within 60 min). On campus Wi-Fi/NAT, CGNAT, VPNs or IPv4/IPv6 mismatch,
-two participants can swap experiments, or match nobody. The result is stored permanently on the phone. `X-Forwarded-For[0]`
-is client-controlled. There is no check that a session was matched exactly once.
-*Fix:* Play Install Referrer, or a one-time code shown on the join page that the participant types/confirms; at minimum, match on IP + user-agent, require exactly one candidate, and show "You are joining *&lt;experiment name&gt;*" for confirmation.
+### V9. Deferred deep link can assign the wrong experiment **[V]** — 🟡 server side fixed, app side open
+`matchSession` matched on client IP only (newest unmatched row within 60 min). On campus Wi-Fi/NAT, CGNAT, VPNs or an IPv4/IPv6 mismatch, two participants could swap experiments,
+or match nobody, and the result is stored permanently on the phone.
+*Fixed on the server:* the match is made only if every unused download from that address belongs to the **same** experiment (several downloads for one experiment — a room of participants — still work, each device takes the newest).
+If one address has downloads for **different** experiments the server answers "ambiguous" (HTTP 200, no experiment) and the app falls back to its manual screen instead of guessing.
+IPv6 addresses are compared on their /64 prefix, so a phone's browser (download) and app (first launch) still match when only the interface identifier differs; sessions are claimed atomically so a download is never assigned twice.
+Outcomes are counted in a new `apk_match_events` collection (`matched`, `ambiguous`, `none`, `lost_race`, with candidate counts and no addresses), so the match rate can be measured — see [`DATA_AND_ANALYSIS.md`](DATA_AND_ANALYSIS.md). Raw IPs are no longer written to the server logs, and the endpoint no longer dumps other participants' IPs.
+The match response also carries `experimentTitle` for a confirmation screen.
+*Still open, needs the app (and a phone to test):*
+1. **A reliable handoff that does not depend on the network address.** Options: **(a, recommended)** an "Open Lexi" button on the join page that opens the installed app with the experiment id (`lexi://join/<id>`) — no typing, deterministic, falls back to the address match when the participant opens the app from the launcher; **(b)** a short code shown on the join page that the participant types into the app (works everywhere, small effort for the participant). Play Store's Install Referrer is not available for a sideloaded APK.
+2. **The manual fallback only accepts `/e/<id>` links**, but participants are given `/join/<id>` links, so "paste the link you received" fails. The app should accept both and always store `<FRONTEND_BASE_URL>/e/<id>`.
+3. **A confirmation screen** ("You are joining *Study name* — Continue / Not me") using the `experimentTitle` above, because the result is stored permanently.
+4. `X-Forwarded-For[0]` is client-controlled unless a trusted proxy overwrites it; the match is a best-effort convenience, never a security control.
 
 ### V10. Provider and prompt confounds **[V]**
 - The Anthropic branch of `_call_llm` **ignores `temperature`** (default 1.0 applies) while OpenAI honours 0.3–0.7. Comparing models compares different sampling.

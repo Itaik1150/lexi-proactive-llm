@@ -4,19 +4,11 @@ import { conversationsService } from '../services/conversations.service';
 import { experimentsService } from '../services/experiments.service';
 import { formsService } from '../services/forms.service';
 import { usersService } from '../services/users.service';
+import { matchCurrentDevice } from '../services/sessionMatching';
+import { getClientIp } from '../utils/clientIp';
 import { requestHandler } from '../utils/requestHandler';
 
 // Strip IPv4-mapped IPv6 prefix so ::ffff:1.2.3.4 and 1.2.3.4 match.
-const normalizeIp = (ip: string): string =>
-    ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-
-const getClientIp = (req: Request): string => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const raw = forwarded
-        ? (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim()
-        : req.socket?.remoteAddress || req.ip || 'unknown';
-    return normalizeIp(raw);
-};
 
 class ExperimentsController {
     getExperiments = requestHandler(async (req: Request, res: Response) => {
@@ -139,43 +131,15 @@ class ExperimentsController {
     });
 
     // Called by the Android app on first launch.
-    // Matches the device IP to the most recent unmatched apk_session within 60 minutes
-    // and returns the associated experimentId so the app can lock itself in.
+    // Links the device to the invitation link used to download the app (see services/sessionMatching.ts):
+    //   200 {experimentId}                  matched
+    //   200 {experimentId: null, ambiguous} the same network address downloaded for DIFFERENT experiments;
+    //                                       the app then asks the participant instead of guessing
+    //   404 {experimentId: null}            no recent download from this address
     matchSession = requestHandler(async (req: Request, res: Response) => {
-        const ip = getClientIp(req);
-        const windowStart = new Date(Date.now() - 60 * 60 * 1000);
-
-        console.log(`[match-session] incoming IP: "${ip}"`);
-
-        const db = mongoose.connection.db;
-
-        // Use explicit findOne + updateOne instead of findOneAndUpdate to avoid
-        // driver-version differences in return shape.
-        const session = await db.collection('apk_sessions').findOne(
-            { ip, timestamp: { $gte: windowStart }, matched: false },
-            { sort: { timestamp: -1 } },
-        );
-
-        console.log(`[match-session] found session: ${session ? JSON.stringify(session) : 'none'}`);
-
-        if (!session) {
-            // Also log all recent sessions for this IP to help debug mismatches.
-            const recent = await db.collection('apk_sessions')
-                .find({ timestamp: { $gte: windowStart } })
-                .sort({ timestamp: -1 })
-                .limit(5)
-                .toArray();
-            console.log(`[match-session] recent sessions (last 5): ${JSON.stringify(recent.map(s => ({ ip: s.ip, expId: s.experimentId, matched: s.matched })))}`);
-            res.status(404).json({ experimentId: null });
-            return;
-        }
-
-        await db.collection('apk_sessions').updateOne(
-            { _id: session._id },
-            { $set: { matched: true, matchedAt: new Date() } },
-        );
-
-        res.status(200).json({ experimentId: session.experimentId });
+        const result = await matchCurrentDevice(getClientIp(req));
+        console.log(`[match-session] ${result.body.experimentId ? 'matched' : result.body.reason}`);
+        res.status(result.status).json(result.body);
     });
 }
 

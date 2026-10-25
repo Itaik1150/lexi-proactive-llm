@@ -142,6 +142,14 @@ db.proactive_logs.aggregate([
 ])
 ```
 
+### How well did the join link work? (`apk_match_events`)
+Each first launch of the app writes one row (no addresses). A high `ambiguous` or `none` share means many participants had to enter their experiment by hand, and a wrong assignment is more likely to have gone unnoticed — check `users.experimentId` against your recruitment list.
+```js
+db.apk_match_events.aggregate([
+  { $group: { _id: "$outcome", n: { $sum: 1 } } }
+])
+```
+
 ### From a send to the conversation and its messages
 `conversation_id` is now stored, so no guessing is needed:
 ```python
@@ -156,7 +164,7 @@ def messages_for(db, log):
 3. **Time zones.** Stored in UTC; the participants and all scheduling are `Asia/Jerusalem` (DST applies).
 4. **`experiment_type` is not the condition.** Use `heuristic_selected`.
 5. **Participants can be switched off.** A dead push token sets `isProactive=false`; check `users.isProactive` before assuming a participant was reachable throughout, and look at `dropped_gatekeeper` / `fcm_failed` rows.
-6. **Deferred deep-link assignment** may have put a participant in the wrong experiment (REVIEW V9) — verify `users.experimentId` against your recruitment list.
+6. **Deferred deep-link assignment**: from the V9 server fix onward the server no longer guesses between experiments that share a network address, but earlier participants may have been matched wrongly (REVIEW V9) — verify `users.experimentId` against your recruitment list.
 7. **Messages that are not from a notification** may still be flagged `isProactiveOpener` (REVIEW V8); prefer `conversation_id` from `proactive_logs`.
 8. **An opened notification is not proof of reading.** `opened_at` means the conversation was fetched.
 9. **Preserve the configuration.** The dashboard reportedly stores a prompt that equals the code default as an empty string (`ProactiveSettingsModal.tsx`); if the default text in code changes later, past experiments would silently change meaning. Export `experiments.experimentFeatures.proactiveSettings` and the Git commit hash with every data export.

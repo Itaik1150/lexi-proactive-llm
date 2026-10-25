@@ -117,8 +117,7 @@ All times are `Asia/Jerusalem`.
 
 1. Researcher shares `…/join/<experimentId>`. The Node server shows a landing page.
 2. **Download** hits `/join/<id>/download`: the server stores `{ip, experimentId, timestamp, matched:false}` in `apk_sessions` and redirects to the APK release.
-3. On first launch `MainActivity` calls the API's match-session endpoint; the server matches the caller's IP to the newest unmatched session
-   from the last 60 minutes and returns the `experimentId`, which the app stores. (Weakness: REVIEW V9. Fallback: manual URL entry.)
+3. On first launch `MainActivity` calls the API's match-session endpoint. The server compares the caller's network address (IPv6 by /64 prefix) with unused downloads from the last 60 minutes and matches only if they all belong to one experiment; if the same address downloaded for different experiments it answers "ambiguous" and the app asks the participant. A matched `experimentId` is stored on the phone. Outcomes are counted in `apk_match_events`. (Remaining weaknesses and the planned app-side handoff: REVIEW V9.)
 4. The participant registers/logs in inside the WebView; the page passes the FCM token to the API (`/users/fcm-token` or `/users/register-device`). These calls require the login cookie and always act on the logged-in user.
 5. From then on `LexiMessagingService` receives pushes, builds a high-priority notification and, on tap, opens the deep-link URL.
 
@@ -131,7 +130,8 @@ All times are `Asia/Jerusalem`.
 | `metadata_conversations` | Node | one per conversation; `userId`, `createdAt`, `lastMessageTimestamp`, `isFinished` |
 | `conversations` | Node | one document per message; `isProactiveOpener` on message 1 |
 | `proactive_logs` | Python (attempt), Node (`opened_at`, `first_reply_at`) | one document per **attempt**, any outcome |
-| `apk_sessions` | Node | join-link → IP matches |
+| `apk_sessions` | Node | join-link downloads awaiting a first launch (`ip`, `ipKey`, `experimentId`, `matched`) |
+| `apk_match_events` | Node | one row per match attempt: `outcome` (`matched`, `ambiguous`, `none`, `lost_race`), candidate counts, no addresses |
 | `forms` | Node | pre/post questionnaires (unchanged upstream) |
 
 `experiments.experimentFeatures.proactiveSettings`:

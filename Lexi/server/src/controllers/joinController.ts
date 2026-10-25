@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { getClientIp, ipKey } from '../utils/clientIp';
 
 const APK_DOWNLOAD_URL =
     process.env.APK_DOWNLOAD_URL ||
@@ -29,19 +30,6 @@ const experimentExists = async (experimentId: string): Promise<boolean> => {
 
 const sendInvalidLink = (res: Response): void => {
     res.status(404).type('text/plain').send('This invitation link is not valid. Please ask the researcher for a new one.');
-};
-
-// Strip IPv4-mapped IPv6 prefix so ::ffff:1.2.3.4 and 1.2.3.4 match.
-const normalizeIp = (ip: string): string =>
-    ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-
-// Extract the real client IP, accounting for Render's reverse proxy.
-const getClientIp = (req: Request): string => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const raw = forwarded
-        ? (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim()
-        : req.socket?.remoteAddress || req.ip || 'unknown';
-    return normalizeIp(raw);
 };
 
 // Minimal mobile-first landing page returned as raw HTML.
@@ -141,11 +129,12 @@ class JoinController {
             const db = mongoose.connection.db;
             await db.collection('apk_sessions').insertOne({
                 ip,
+                ipKey: ipKey(ip),
                 experimentId,
                 timestamp: new Date(),
                 matched: false,
             });
-            console.log(`[join/download] logged session — ip: "${ip}", experimentId: "${experimentId}"`);
+            console.log(`[join/download] logged session for experiment ${experimentId}`);
         } catch (err) {
             console.error('[join] Failed to log apk_session:', err);
         }
