@@ -171,3 +171,32 @@ Anything odd:
 - **Pushes shown by Android itself.** The engine sends each push as a "notification message". When the app is not open, Android draws it and the app's own notification code (lock-screen hiding, the full-screen wake-up) does **not** run. The conversation link now works in that state (the app reads the ids Android passes along), but the lock-screen hiding does not. The fix is to send the push as a data-only message from the engine; it changes delivery behaviour, so decide with Claude after D1.
 - A **signed release** APK and minification (see `OPERATIONS.md`, section 6).
 - Token refresh while the app is closed, and logging out clearing the token (review item R7).
+
+---
+
+## Results of the first test run
+
+Run on **25 Oct 2026** on a Samsung SM-S916B (Android 16), debug build `1.4` (versionCode 5), installed over the previous version, against the deployed servers. Build and install were done from the command line with Java 21 because Android Studio's default Java (25) is too new for this Gradle (Studio must be set to Java 17–21: Settings → Build Tools → Gradle → Gradle JDK).
+
+| Test | Result | Evidence |
+|---|---|---|
+| A  unit tests | ✔ 17 of 17 | Android Studio |
+| B  installs over the old app, **keeps the saved study** (D4) | ✔ | opened straight into the study |
+| C1 join link → "You are joining *Itai Demo (friends) exp*" → Continue | ✔ | study opened, still logged in; saved address `…vercel.app/e/<id>` is built from the build's own web address |
+| C2 link to a study that does not exist | ✔ | "This invitation is not valid…" screen, saved study untouched |
+| C3 join link for the study already saved | ✔ | opens the study directly, no question |
+| C4 **Open Lexi** button on the real join page (Chrome) | ✔ | opened the app |
+| C5 manual paste fallback | not yet tested | |
+| D1 tap a notification, app **closed** | ✔ | opened the exact conversation (before the fix: the study home) |
+| D1 tap a notification, app in the **background** | ✔ | opened the exact conversation; log: "opened from a notification" |
+| D1 notification while the app is **open on screen** | ✔ delivered | the app drew it itself (`vis=PRIVATE` with a public version) |
+| Lock screen, app open when it arrived | ✔ | showed only "You have a new message" |
+| Lock screen, app closed or in the background | expected full text | Android draws these itself; not changed (see "What is not covered") |
+| D2 link inside a message opens outside the app | not yet tested | |
+| D3 malicious `deepLinkUrl` / malformed ids | ✔ | app log shows it loaded the saved study and ignored `example.com` |
+| D5 backups off | ✔ | `ALLOW_BACKUP` absent from the installed app's flags |
+| Feedback control after a notification tap | not observed | the test push opened an existing conversation, not a fresh nudge |
+
+Observed along the way:
+- `FSI_REQUESTED_BUT_DENIED`: on Android 14+ the *full-screen* wake-up of the screen needs a manual permission (Settings → Apps → Lexi → *Allow full screen notifications*). It is not granted on this phone, so nudges appear as ordinary heads-up notifications. Decide whether you want participants to grant it.
+- Android Studio's Java: see above.
