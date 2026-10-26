@@ -518,3 +518,6 @@ docs/_build/
 # =============================================================================
 # END OF GITIGNORE
 # =============================================================================
+
+# slides export for Overleaf (not part of the code)
+lexi-slides-overleaf.zip
