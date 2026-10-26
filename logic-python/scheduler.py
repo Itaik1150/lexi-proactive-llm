@@ -207,6 +207,21 @@ def heartbeat():
     print(f"💓 [{now_str}] Scheduler heartbeat — process alive", flush=True)
 
 
+def memory_job():
+    """
+    Build the memory of every finished conversation (docs/REVIEW.md M1). It runs for ALL
+    participants of ALL conditions, whether or not they get notifications.
+    """
+    from services import memory_pipeline
+    try:
+        counts = memory_pipeline.run_job()
+    except Exception as e:
+        print(f"❌ memory_job: {e}", flush=True)
+        return
+    if counts["analysed"] or counts["failed"]:
+        print(f"🧠 memory_job: {counts}", flush=True)
+
+
 def _get_experiment_users(experiment_id: str) -> list:
     """Return all eligible proactive users (isProactive=True, have FCM token) for one experiment."""
     try:
@@ -407,6 +422,12 @@ if __name__ == "__main__":
         id="reload_schedules", replace_existing=True,
     )
 
+    # Memory for every finished conversation, every 5 minutes (one run at a time).
+    scheduler.add_job(
+        memory_job, "interval", minutes=5,
+        id="memory_pipeline", replace_existing=True, max_instances=1, coalesce=True,
+    )
+
     # Heartbeat every 30 minutes — visible in Render logs to confirm the process is alive.
     scheduler.add_job(
         heartbeat, "interval", minutes=30,
@@ -418,6 +439,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"   Proactive jobs registered : {registered}")
     print(f"   Schedule reload           : every hour (top of the hour)")
+    print(f"   Memory pipeline           : every 5 min (all participants)")
     print(f"   Heartbeat                 : every 30 min")
     print(f"   Per-user day-of-week + heuristic weights re-verified live every cycle")
     print("   Press Ctrl+C to stop.")

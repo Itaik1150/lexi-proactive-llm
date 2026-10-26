@@ -1,77 +1,34 @@
 """
 Affective Heuristic
 
-Detects emotionally charged conversations and generates an empathetic
-check-in referencing the user's shared emotional content.
+Writes an empathetic check-in that refers to a personal event the participant shared earlier.
 
-create_memory() extracts emotional_memories via LLM; get_proactive_message()
-picks the best unused memory (or falls back to a warm cold-start invitation)
-and generates the check-in message. Memories are marked used as soon as they
-are selected, so each one fires at most once.
+Memory is built by the shared pipeline (services/memory_pipeline.py, docs/REVIEW.md M1), the same
+for every condition. This class only READS it: get_proactive_message() picks the best unused event
+(or falls back to a warm invitation) and generates the message. An event is marked used as soon as
+it is selected, so each one fires at most once.
 
-MongoDB fields used (all inside proactiveMemory):
-  emotional_memories: [{memory_id, content, affective_score, timestamp_iso, used}]
-  affective_scanned_conversation_ids: List[str] — IDs of conversations already
-    analyzed for emotional content. Mirrors the gap_scanned_conversation_ids
-    pattern in BehaviouralGapHeuristic (Task 6.6).
-
-Task 6.6 note: affective_scanned_conversation_ids is PRIVATE to AffectiveHeuristic.
-  No other heuristic must read or write this field. Its name is intentionally
-  prefixed with "affective_" to enforce isolation.
+MongoDB fields read (inside proactiveMemory):
+  emotional_memories: [{memory_id, content, affective_score, conversationId, timestamp_iso, used, ...}]
 """
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from bson import ObjectId as _ObjectId
 
 from heuristics.base_heuristic import BaseHeuristic
-from services import scan_progress
 
 
 class AffectiveHeuristic(BaseHeuristic):
     """
-    Detects emotional content in recent conversations and generates an
-    empathetic check-in. Always produces a message (cold-start fallback
-    ensures there is always something to send when affective is selected).
+    Empathetic check-in about a personal event from an earlier conversation. Always produces a
+    message (the cold-start path ensures there is always something to send).
 
-    Memory field: proactiveMemory.emotional_memories
-      List of {memory_id, content, affective_score (1-10), timestamp_iso, used: bool}
-
-    Deduplication: affective_scanned_conversation_ids tracks which conversation
-    IDs have already been analyzed; create_memory() skips them entirely.
+    Memory field: proactiveMemory.emotional_memories, written by the shared memory pipeline.
     """
-
-    # Task 6.5: researcher-facing prompt — persona/task only, no schema or output constraints.
-    # Schema and "Return ONLY valid JSON" are injected automatically by _safe_memory_prompt().
-    DEFAULT_MEMORY_PROMPT = (
-        "You analyze conversation messages for deep emotional content.\n"
-        "Extract emotional expressions, personal struggles, vulnerable shares, "
-        "and meaningful life events shared by the user.\n\n"
-        "Exclude casual mentions, surface-level topics, or purely factual statements."
-    )
-
-    # Task 6.5: structural part — injected by _safe_memory_prompt(), never shown in UI.
-    # Note: conversationId, timestamp_iso, and used are added automatically by Python code.
-    # Dual-Tier Memory: Also extracts a factual summary for peripheral awareness.
-    MEMORY_SCHEMA: str = (
-        "For each genuine emotional share, produce an object with:\n"
-        '  "content":        exact quote or close paraphrase of the emotional share\n'
-        '  "affective_score": integer 1\u201310 (1=mildly emotional, 10=deeply personal/distressing)\n'
-        '  "timestamp_iso":  use today\'s ISO datetime for all items\n'
-        '  "used":           false\n\n'
-        'Schema: {"emotional_memories": [{"content": str, "affective_score": int 1\u201310, '
-        '"timestamp_iso": str, "used": false}]}\n\n'
-        'CRITICAL: Also generate a "conversation_summary" field (2-3 sentences) that provides '
-        'a factual overview of what the user discussed in this conversation. '
-        'This summary MUST include specific entities mentioned: names of people, pets, colors, '
-        'places, problems, or events. Be concrete and specific.\n\n'
-        'Full schema: {"emotional_memories": [...], "conversation_summary": str}\n'
-        'Return {"emotional_memories": [], "conversation_summary": ""} if the conversation is empty or trivial.'
-    )
 
     DEFAULT_MESSAGE_PROMPT = (
         "You are an empathetic assistant that encourages emotional sharing.\n"
@@ -90,166 +47,21 @@ class AffectiveHeuristic(BaseHeuristic):
     )
 
     _MEMORY_EXPIRY_HOURS: int = 72
-    _CONV_SCAN_LIMIT: int = 3   # conversations analysed per cycle (bounds LLM cost)
-    _CONV_LOOKBACK: int = 10    # newest conversations checked for unanalysed participant messages
-
     # memory_id marked `used` by the current get_proactive_message() call (None until then).
     _selected_memory_id: Optional[str] = None
 
-    @staticmethod
-    def _score(value) -> int:
-        """1-10; anything the LLM returns that is not a number (e.g. "7/10") counts as 1 instead of failing the whole conversation."""
-        try:
-            return max(1, min(10, int(value or 1)))
-        except (TypeError, ValueError):
-            return 1
-
     def create_memory(self) -> None:
         """
-        Extract emotional memories from participant messages that have not been analysed yet.
-
-        Progress is tracked per conversation (proactiveMemory.affective_scan_progress =
-        {conversationId: highest participant messageNumber analysed}), see services/scan_progress.py.
-        A conversation that keeps growing is analysed again for its NEW messages only, and one with
-        no participant messages yet (e.g. the opener created for a notification) is picked up as soon
-        as the participant replies. Progress advances only after a successful extraction.
+        Memory is NOT built here any more (docs/REVIEW.md M1, D2): one shared pipeline
+        (services/memory_pipeline.py) builds it for every participant of every condition, after a
+        conversation has finished. This only makes sure that anything that finished since its last
+        scheduled run is analysed before the notification is written.
         """
-        memory = self._memory
-        progress: dict = dict(memory.get("affective_scan_progress") or {})
-        legacy_ids: set = set(memory.get("affective_scanned_conversation_ids") or [])
-        conversations_to_process: list = []  # [(conv_id, [new messages]), ...]
-        progress_updates: dict = {}          # conv_id -> highest messageNumber now considered analysed
-
-        # ── Phase A: find conversations with participant messages not analysed yet ──
+        from services import memory_pipeline
         try:
-            if not self.mongodb_client.connect():
-                return
-
-            recent_metas = list(self.mongodb_client.db["metadata_conversations"].find(
-                {"userId": self.user_id},
-                sort=[("createdAt", -1)],
-                limit=self._CONV_LOOKBACK,
-            ))
-            for meta in recent_metas:
-                conv_id = str(meta["_id"])
-                raw = list(self.mongodb_client.db["conversations"].find(
-                    {"conversationId": conv_id, "role": "user"},
-                    sort=[("messageNumber", 1)],
-                ))
-                new_msgs, migrate_to = scan_progress.plan_conversation(
-                    conv_id, scan_progress.user_messages(raw), progress, legacy_ids,
-                )
-                if migrate_to is not None:
-                    progress_updates[conv_id] = migrate_to  # scanned under the old scheme: do not redo
-                    continue
-                if new_msgs and len(conversations_to_process) < self._CONV_SCAN_LIMIT:
-                    conversations_to_process.append((conv_id, new_msgs))
+            memory_pipeline.run_job(only_user_id=self.user_id)
         except Exception as e:
-            print(f"⚠️  AffectiveHeuristic.create_memory read ({self.username}): {e}")
-            return
-        finally:
-            self.mongodb_client.disconnect()
-
-        if not conversations_to_process and not progress_updates:
-            return  # Nothing new to process
-
-        # Task 6.3: detect language from the messages collected above.
-        _detected_lang = None
-        all_texts = [m["text"] for _, msgs in conversations_to_process for m in msgs]
-        if all_texts:
-            _detected_lang = self._detect_language(all_texts)
-            if _detected_lang:
-                self.language = _detected_lang
-
-        # ── Phase B: LLM extraction per conversation (outside DB connection) ───
-        new_memories: list = []
-        new_summaries: list = []  # Dual-Tier Memory: collect summaries
-        today_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        already_extracted = {
-            (m.get("conversationId"), scan_progress.normalize(m.get("content")))
-            for m in (memory.get("emotional_memories") or [])
-        }
-
-        for conv_id, new_msgs in conversations_to_process:
-            joined = "\n".join(f"- {m['text']}" for m in new_msgs[-20:])
-            system = self._safe_memory_prompt(
-                self.memory_prompt.replace("{today_iso}", today_iso)
-            )
-            try:
-                raw_text = self.llm_service.call_with_prompt(
-                    system=system,
-                    user_content=f"User messages:\n{joined}",
-                    json_mode=True,
-                    max_tokens=600,
-                )
-                parsed = json.loads(raw_text)
-
-                # Extract emotional memories (Deep Dive tier)
-                for item in (parsed.get("emotional_memories") or []):
-                    content = (item.get("content") or "").strip()
-                    key = (conv_id, scan_progress.normalize(content))
-                    if content and key not in already_extracted:
-                        already_extracted.add(key)
-                        new_memories.append({
-                            "memory_id":       str(_ObjectId()),  # Unique ID for surgical mark-as-used
-                            "content":         content,
-                            "affective_score": self._score(item.get("affective_score")),
-                            "conversationId":  conv_id,  # links the memory to THIS conversation
-                            "timestamp_iso":   today_iso,  # Added automatically: extraction time
-                            "used":            False,  # Added automatically: tracking field
-                        })
-                        print(f"💛 [{self.username}] Extracted memory from conversation {conv_id[:8]}: '{content[:50]}'")
-
-                # Extract conversation summary (Peripheral Awareness tier)
-                summary = (parsed.get("conversation_summary") or "").strip()
-                if summary:
-                    new_summaries.append(summary)
-                    print(f"📝 [{self.username}] Generated summary for conversation {conv_id[:8]}: '{summary[:60]}'")
-
-                # Only a successful extraction advances progress; a failure is retried next cycle.
-                progress_updates[conv_id] = scan_progress.last_number(new_msgs)
-
-            except Exception as e:
-                print(f"⚠️  AffectiveHeuristic.create_memory LLM ({self.username}) conv {conv_id[:8]}: {e}")
-
-        # ── Phase C: Write to MongoDB ──────────────────────────────────────────
-        set_fields: dict = {
-            scan_progress.progress_path("affective_scan_progress", cid): n
-            for cid, n in progress_updates.items()
-        }
-        if _detected_lang:
-            set_fields["proactiveMemory.preferred_language"] = _detected_lang
-        update: dict = {}
-        if set_fields:
-            update["$set"] = set_fields
-
-        # Push both emotional memories and summaries
-        if new_memories or new_summaries:
-            update["$push"] = {}
-            if new_memories:
-                update["$push"]["proactiveMemory.emotional_memories"] = {"$each": new_memories}
-                print(f"💛 [{self.username}] Extracted {len(new_memories)} new emotional memory(ies)")
-
-            # Dual-Tier Memory: push summaries (keep last 30)
-            if new_summaries:
-                update["$push"]["conversationSummaries"] = {
-                    "$each": new_summaries,
-                    "$slice": -30  # Keep only the last 30 summaries
-                }
-                print(f"📝 [{self.username}] Added {len(new_summaries)} conversation summary(ies) (rolling window of 30)")
-
-        if not update:
-            return
-        try:
-            if not self.mongodb_client.connect():
-                return
-            self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
-                {"_id": _ObjectId(self.user_id)}, update
-            )
-        except Exception as e:
-            print(f"⚠️  AffectiveHeuristic.create_memory write ({self.username}): {e}")
-        finally:
-            self.mongodb_client.disconnect()
+            print(f"⚠️  AffectiveHeuristic memory catch-up ({self.username}): {e}")
 
     def get_proactive_message(self) -> Optional[str]:
         """

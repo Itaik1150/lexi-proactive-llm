@@ -18,7 +18,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 from bson import ObjectId
 
-from heuristics.affective import AffectiveHeuristic
 from heuristics.behavioural_gap import BehaviouralGapHeuristic
 from heuristics.temporal import TemporalHeuristic
 from services import scan_progress
@@ -98,90 +97,6 @@ def sent_to_llm(llm, call=0):
 
 
 EXAM = {"emotional_memories": [{"content": "failed my exam", "affective_score": 8}], "conversation_summary": "exam"}
-
-
-class AffectiveScanning(unittest.TestCase):
-    def test_first_scan_analyses_everything_the_participant_wrote(self):
-        world = FakeWorld([("C1", [msg(1, "Hello!", "assistant"), msg(2, "I failed my exam"), msg(4, "I feel awful")])])
-        h, llm = make(AffectiveHeuristic, world, llm_reply=EXAM)
-        h.create_memory()
-        content = sent_to_llm(llm)
-        self.assertIn("I failed my exam", content)
-        self.assertIn("I feel awful", content)
-        self.assertNotIn("Hello!", content, "assistant messages are never analysed")
-        update = world.last_update()
-        self.assertEqual(update["$set"]["proactiveMemory.affective_scan_progress.C1"], 4)
-        self.assertEqual(len(update["$push"]["proactiveMemory.emotional_memories"]["$each"]), 1)
-
-    def test_a_conversation_that_grew_is_analysed_again_for_the_new_messages_only(self):
-        world = FakeWorld([("C1", [msg(2, "I failed my exam"), msg(4, "I feel awful"), msg(6, "my mom is sick")])])
-        memory = {"affective_scan_progress": {"C1": 4}}
-        h, llm = make(AffectiveHeuristic, world, memory,
-                      llm_reply={"emotional_memories": [{"content": "mom is sick", "affective_score": 9}]})
-        h.create_memory()
-        content = sent_to_llm(llm)
-        self.assertIn("my mom is sick", content)
-        self.assertNotIn("I failed my exam", content)
-        self.assertEqual(world.last_update()["$set"]["proactiveMemory.affective_scan_progress.C1"], 6)
-
-    def test_the_opener_conversation_stays_pending_until_the_participant_replies(self):
-        world = FakeWorld([("C1", [msg(1, "Hey, how are you?", "assistant")])])
-        h, llm = make(AffectiveHeuristic, world, llm_reply=EXAM)
-        h.create_memory()
-        llm.call_with_prompt.assert_not_called()
-        self.assertIsNone(world.last_update(), "nothing recorded: the conversation is NOT marked done")
-
-        world.messages["C1"].append(msg(2, "I failed my exam"))   # the participant replies later
-        h2, llm2 = make(AffectiveHeuristic, world, memory={}, llm_reply=EXAM)
-        h2.create_memory()
-        self.assertIn("I failed my exam", sent_to_llm(llm2))
-        self.assertEqual(world.last_update()["$set"]["proactiveMemory.affective_scan_progress.C1"], 2)
-
-    def test_conversations_scanned_under_the_old_scheme_are_not_extracted_twice(self):
-        world = FakeWorld([("C1", [msg(2, "I failed my exam"), msg(4, "I feel awful")])])
-        memory = {"affective_scanned_conversation_ids": ["C1"]}
-        h, llm = make(AffectiveHeuristic, world, memory, llm_reply=EXAM)
-        h.create_memory()
-        llm.call_with_prompt.assert_not_called()
-        self.assertEqual(world.last_update()["$set"]["proactiveMemory.affective_scan_progress.C1"], 4)
-
-    def test_a_failed_extraction_does_not_advance_progress_so_it_is_retried(self):
-        world = FakeWorld([("C1", [msg(2, "I failed my exam")])])
-        h, llm = make(AffectiveHeuristic, world, llm_error=RuntimeError("rate limit"))
-        h.create_memory()
-        update = world.last_update() or {}
-        self.assertFalse(any("affective_scan_progress" in k for k in update.get("$set", {})))
-        # next cycle, the LLM works: the same message is analysed
-        h2, llm2 = make(AffectiveHeuristic, world, llm_reply=EXAM)
-        h2.create_memory()
-        self.assertIn("I failed my exam", sent_to_llm(llm2))
-
-    def test_a_memory_that_was_already_extracted_is_not_added_twice(self):
-        world = FakeWorld([("C1", [msg(2, "I failed my exam"), msg(4, "still thinking about it")])])
-        memory = {"affective_scan_progress": {"C1": 2},
-                  "emotional_memories": [{"content": "Failed  my EXAM", "conversationId": "C1", "used": True}]}
-        h, llm = make(AffectiveHeuristic, world, memory, llm_reply=EXAM)
-        h.create_memory()
-        update = world.last_update()
-        self.assertNotIn("proactiveMemory.emotional_memories", update.get("$push", {}), "no duplicate memory")
-        self.assertEqual(update["$set"]["proactiveMemory.affective_scan_progress.C1"], 4)
-
-    def test_a_malformed_score_from_the_llm_does_not_discard_the_conversation(self):
-        world = FakeWorld([("C1", [msg(2, "I failed my exam")])])
-        reply = {"emotional_memories": [{"content": "failed my exam", "affective_score": "7/10"}]}
-        h, _ = make(AffectiveHeuristic, world, llm_reply=reply)
-        h.create_memory()
-        pushed = world.last_update()["$push"]["proactiveMemory.emotional_memories"]["$each"]
-        self.assertEqual(pushed[0]["affective_score"], 1)
-
-    def test_at_most_three_conversations_per_cycle_newest_first_the_rest_wait(self):
-        convs = [(f"C{i}", [msg(2, f"text {i}")]) for i in range(5)]   # C0 is newest
-        world = FakeWorld(convs)
-        h, llm = make(AffectiveHeuristic, world, llm_reply={"emotional_memories": []})
-        h.create_memory()
-        self.assertEqual(llm.call_with_prompt.call_count, 3)
-        recorded = {k.rsplit(".", 1)[1] for k in world.last_update()["$set"] if "affective_scan_progress" in k}
-        self.assertEqual(recorded, {"C0", "C1", "C2"})
 
 
 class GapScanning(unittest.TestCase):
