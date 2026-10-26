@@ -5,7 +5,8 @@ import { SnackbarStatus, useSnackbar } from '@contexts/SnackbarProvider';
 import { useConversationId } from '@hooks/useConversationId';
 import useEffectAsync from '@hooks/useEffectAsync';
 import useActiveUser from '@hooks/useActiveUser';
-import { Box, Dialog, Grid, Typography, useMediaQuery } from '@mui/material';
+import ExitToAppOutlinedIcon from '@mui/icons-material/ExitToAppOutlined';
+import { Box, Button, Dialog, Grid, Typography, useMediaQuery } from '@mui/material';
 import theme from '@root/Theme';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -173,7 +174,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ isFinishDialogOpen, setIsFinishDial
                             />
                         </MessageListContainer>
                         {isMobile && (
-                            <Grid item display="flex" justifyContent="flex-end" px={1} pb={0.5}>
+                            <Grid item display="flex" justifyContent="space-between" alignItems="center" px={1} pb={0.5}>
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<ExitToAppOutlinedIcon />}
+                                    onClick={() => setIsFinishDialogOpen(true)}
+                                    sx={{ textTransform: 'none', fontWeight: 700, minHeight: 36 }}
+                                >
+                                    Finish
+                                </Button>
                                 <FontSizeSwitch fontSize={messageFontSize} setFontSize={setMessageFontSize} />
                             </Grid>
                         )}

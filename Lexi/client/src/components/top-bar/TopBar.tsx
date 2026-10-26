@@ -4,14 +4,13 @@ import { Pages } from '@app/App';
 import useActiveUser from '@hooks/useActiveUser';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import ExitToAppOutlinedIcon from '@mui/icons-material/ExitToAppOutlined';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { Box, IconButton, Menu, MenuItem, useMediaQuery } from '@mui/material';
 import theme from '@root/Theme';
 import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AppBarText, LogoutButton, StyledAppBar, StyledIconButton, StyledToolBar } from './TopBar.s';
+import { LogoutButton, StyledAppBar, StyledToolBar } from './TopBar.s';
 
 interface TopBarProps {
     setIsOpen: (boolean) => void;
@@ -51,31 +50,14 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     return (
         <StyledAppBar position="static">
             <StyledToolBar sx={{ height: '8vh', minHeight: '8vh' }}>
-                {isMobile && /\/e\/.+\/c\/.+/.test(location.pathname) ? (
-                    <StyledIconButton
-                        color="inherit"
-                        onClick={() => setIsOpen(true)}
-                        sx={{
-                            px: 1.25,
-                            py: 0.5,
-                            borderRadius: 1,
-                            backgroundColor: 'rgba(255, 255, 255, 0.18)',
-                            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.28)' },
-                        }}
-                    >
-                        <ExitToAppOutlinedIcon />
-                        <AppBarText sx={{ fontWeight: 700, fontSize: '1.2rem' }}>Finish</AppBarText>
-                    </StyledIconButton>
-                ) : (
-                    <Box display="flex" alignItems="center">
-                        {/\/e\/.+\/c\/.+/.test(location.pathname) && (
-                            <IconButton color="inherit" onClick={() => navigate(-1)} style={{ padding: '0px' }}>
-                                <ArrowBackIcon />
-                            </IconButton>
-                        )}
-                        <img src="/lexi_logo.png" alt="logo" width={logoSize.width} height={logoSize.height} />
-                    </Box>
-                )}
+                <Box display="flex" alignItems="center">
+                    {!isMobile && /\/e\/.+\/c\/.+/.test(location.pathname) && (
+                        <IconButton color="inherit" onClick={() => navigate(-1)} style={{ padding: '0px' }}>
+                            <ArrowBackIcon />
+                        </IconButton>
+                    )}
+                    <img src="/lexi_logo.png" alt="logo" width={logoSize.width} height={logoSize.height} />
+                </Box>
                 <Box display="flex" gap="20px" alignItems="center">
                     {activeUser && activeUser.isAdmin && (
                         <>

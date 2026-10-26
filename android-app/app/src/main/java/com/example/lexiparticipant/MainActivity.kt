@@ -467,7 +467,8 @@ private fun JoinConfirmScreen(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun ChatScreen(url: String, onWebViewCreated: ((WebView) -> Unit)? = null) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Android 15+ draws edge to edge: keep the page out of the status bar, cutout, navigation bar and keyboard.
+    Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
