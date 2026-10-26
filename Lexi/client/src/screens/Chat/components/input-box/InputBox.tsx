@@ -2,7 +2,7 @@ import { SnackbarStatus, useSnackbar } from '@contexts/SnackbarProvider';
 import { MessageType } from '@models/AppModels';
 import SendIcon from '@mui/icons-material/Send';
 import { Box, Button, IconButton } from '@mui/material';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { sendMessage, sendStreamMessage } from '../../../../DAL/server-requests/conversations';
 import { StyledInputBase, StyledInputBox } from './InputBox.s';
 
@@ -28,6 +28,7 @@ const InputBox: React.FC<InputBoxProps> = ({
     const { openSnackbar } = useSnackbar();
     const [message, setMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState(null);
+    const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
     const handleSendMessage = async () => {
         if (!message && !errorMessage && !message.trim().length) {
@@ -38,6 +39,8 @@ const InputBox: React.FC<InputBoxProps> = ({
         const conversation: MessageType[] = [...messages, { content: messageContent, role: 'user' }];
         setMessages(conversation);
         setMessage('');
+        // keep the keyboard open so the participant can keep typing
+        inputRef.current?.focus();
         setIsMessageLoading(true);
         try {
             if (isStreamMessage) {
@@ -135,12 +138,17 @@ const InputBox: React.FC<InputBoxProps> = ({
                         placeholder="Type a message…"
                         multiline
                         maxRows={5}
+                        inputRef={inputRef}
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         onKeyDown={handleKeyDown}
                         fontSize={fontSize === 'sm' ? '1rem' : '1.25rem'}
                     />
-                    <IconButton color="primary" onClick={handleSendMessage}>
+                    <IconButton
+                        color="primary"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={handleSendMessage}
+                    >
                         <SendIcon />
                     </IconButton>
                 </StyledInputBox>
