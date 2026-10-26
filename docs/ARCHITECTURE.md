@@ -78,7 +78,7 @@ the base class appends the JSON schema and output rules (`_safe_memory_prompt`, 
 
 | Heuristic | Memory it builds (`proactiveMemory.*`) | Fires when | Otherwise |
 |---|---|---|---|
-| **Affective** | `emotional_memories[]` `{memory_id, content, affective_score 1–10, conversationId, timestamp_iso, used}`; `conversationSummaries[]` (rolling 30, at user root); `affective_scan_progress{}` | an unused memory younger than 72 h exists; highest score wins and is marked `used` immediately | warm "listening ear" invitation (`was_fallback`) |
+| **Affective** | `emotional_memories[]` `{memory_id, content, affective_score 1–10, conversationId, timestamp_iso, used}`; `conversation_notes{conversationId: {summary, conversation_date}}` (one dated summary per conversation) and the scan progress on `metadata_conversations.memory_scan`, all written by the shared pipeline `services/memory_pipeline.py` (every 2 min, every condition, GPT-4.1) | an unused memory younger than 72 h exists (rule being replaced by M4); highest score wins and is marked `used` immediately | warm "listening ear" invitation (`was_fallback`) |
 | **Temporal** | `future_mentions[]` `{text, when_iso, conversationId}`; `fired_temporal_mentions[]`; `temporal_scan_progress{}` | a mention's `when_iso` is 6–24 h ahead and not yet fired | "anything exciting coming up?" (`was_fallback`) |
 | **Behavioural gap** | `open_intents[]` `{intent, stated_at, checked, conversationId}`; `pending_gap_followup`; `gap_scan_progress{}` | an intent is 24–48 h old and the LLM judges the user's recent messages give no sign of follow-through | "how are your plans going?" (`was_fallback`) |
 | **Generic** | none (only language detection) | always | — (control; never a "fallback") |
@@ -125,7 +125,7 @@ All times are `Asia/Jerusalem`.
 
 | Collection | Written by | Contains |
 |---|---|---|
-| `users` | Node, Python | account, `agent`, `experimentId`, `fcmToken`, `isProactive`, `proactiveMemory`, `conversationSummaries` |
+| `users` | Node, Python | account, `agent`, `experimentId`, `fcmToken`, `isProactive`, `proactiveMemory` (incl. `conversation_notes`) |
 | `experiments` | Node (dashboard) | `experimentFeatures.proactiveSettings` — see below |
 | `metadata_conversations` | Node | one per conversation; `userId`, `createdAt`, `lastMessageTimestamp`, `isFinished` |
 | `conversations` | Node | one document per message; `isProactiveOpener` on message 1 |

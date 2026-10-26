@@ -35,8 +35,16 @@ export interface IUser {
             conversationId: string;
             timestamp_iso: string;
             used: boolean;
+            feeling?: string | null;
+            when?: string;
+            when_date?: string | null;
+            reason?: string;
+            conversation_date?: string;
         }>;
+        /** Written by the shared memory pipeline: one dated summary per conversation, keyed by conversation id. */
+        conversation_notes?: Record<string, { summary?: string; conversation_date?: string; updated_at?: string }>;
         [key: string]: any;
     };
+    /** Deprecated (26 Oct): replaced by proactiveMemory.conversation_notes; nothing writes or reads it any more. */
     conversationSummaries?: string[];
 }

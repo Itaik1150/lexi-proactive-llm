@@ -66,7 +66,7 @@ That gives you real denominators: how often participants were reached, skipped, 
 |---|---|
 | `metadata_conversations` | `_id` (= `conversationId` in messages), `userId`, `experimentId`, `conversationNumber`, `createdAt`, `lastMessageTimestamp` (ms epoch), `isFinished` |
 | `conversations` | `conversationId`, `role` (`user`/`assistant`), `content`, `messageNumber`, `isProactiveOpener` (on message 1), `userAnnotation` |
-| `users` | `experimentId`, `isProactive`, `language`, `proactiveMemory.*`, `conversationSummaries[]` |
+| `users` | `experimentId`, `isProactive`, `language`, `proactiveMemory.*` (`emotional_memories[]` events with score, reason and dates; `conversation_notes{}` dated summaries) |
 | `experiments` | `experimentFeatures.proactiveSettings.*` — the configuration each participant was under |
 
 Recommended indexes (run once in Atlas / `mongosh`; they speed up the daily-quota count and the funnel stamps):

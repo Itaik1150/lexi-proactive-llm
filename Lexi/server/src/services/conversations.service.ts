@@ -4,6 +4,7 @@ import { OpenAI } from 'openai';
 import { IAgent, Message, UserAnnotation } from 'src/types';
 import { ConversationsModel } from '../models/ConversationsModel';
 import { MetadataConversationsModel } from '../models/MetadataConversationsModel';
+import { ConversationNote, composeSystemPrompt } from './chatMemoryPrompt';
 import { experimentsService } from './experiments.service';
 import { usersService } from './users.service';
 
@@ -224,38 +225,20 @@ class ConversationsService {
         userId?: string,
         conversationId?: string,
     ) => {
-        let systemPrompt = { role: 'system', content: agent.systemStarterPrompt };
-
-        // === DUAL-TIER MEMORY INJECTION ===
-        
-        // Tier 1: Peripheral Awareness - inject rolling conversation summaries for ALL conversations
-        if (userId) {
-            const summaries = await this.getConversationSummaries(userId);
-            if (summaries && summaries.length > 0) {
-                systemPrompt.content +=
-                    `\n\n--- Context from Previous Conversations ---\n` +
-                    summaries.map((summary, idx) => `${idx + 1}. ${summary}`).join('\n') +
-                    `\n--- End of Context ---\n\n` +
-                    `Use this context naturally to maintain continuity. Do not explicitly mention "reading summaries" or "reviewing notes."`;
-            }
-        }
-
-        // Tier 2: Deep Dive - inject specific past conversation transcript for proactive conversations
-        // This runs AFTER summaries so the LLM has both general context AND specific details
-        if (userId && conversationId) {
-            const context = await this.getProactiveContext(userId, conversationId);
-            if (context) {
-                systemPrompt.content +=
-                    `\n\n--- Proactive Context (for your internal reference only) ---\n` +
-                    `You reached out to the user in this conversation because something from a past session stayed with you. The specific memory that prompted you to reconnect:\n\n` +
-                    `"${context.memory}"\n\n` +
-                    `Here is an excerpt from the original conversation where that moment occurred:\n${context.transcript}\n` +
-                    `---\n\n` +
-                    `Carry this awareness naturally into your responses. Do not announce that you reviewed a transcript or that you "looked something up." ` +
-                    `Simply let this background inform your understanding of the user — the way any attentive, caring person would when following up on something meaningful from a prior conversation.\n` +
-                    `--- End of Proactive Context ---`;
-            }
-        }
+        // Same for every condition (M2, M3, D15): persona + today's date + ALL dated notes of earlier
+        // conversations; plus the memory behind the notification when the conversation was opened from one.
+        const notes = userId ? await this.getConversationNotes(userId) : undefined;
+        const proactive = userId && conversationId ? await this.getProactiveContext(userId, conversationId) : null;
+        const systemPrompt = {
+            role: 'system',
+            content: composeSystemPrompt({
+                persona: agent.systemStarterPrompt,
+                now: new Date(),
+                notes,
+                currentConversationId: conversationId,
+                proactive,
+            }),
+        };
 
         const beforeUserMessage = { role: 'system', content: agent.beforeUserSentencePrompt };
         const afterUserMessage = { role: 'system', content: agent.afterUserSentencePrompt };
@@ -272,13 +255,13 @@ class ConversationsService {
         return messages;
     };
 
-    private getConversationSummaries = async (userId: string): Promise<string[]> => {
+    private getConversationNotes = async (userId: string): Promise<Record<string, ConversationNote> | undefined> => {
         try {
             const user = await usersService.getUserById(userId);
-            return user.conversationSummaries || [];
+            return user?.proactiveMemory?.conversation_notes;
         } catch (error) {
-            console.error('[getConversationSummaries] Error:', error);
-            return [];
+            console.error('[getConversationNotes] Error:', error);
+            return undefined;
         }
     };
 
@@ -360,7 +343,13 @@ class ConversationsService {
 
             console.log('[getProactiveContext] Transcript length:', transcript.length, 'characters');
             console.log('[getProactiveContext] ✅ SUCCESS: Returning formatted context');
-            return { memory: memoryContent, transcript };
+            return {
+                memory: memoryContent,
+                transcript,
+                sharedOn: memory.conversation_date,
+                when: memory.when,
+                whenDate: memory.when_date,
+            };
         } catch (error) {
             console.error('[getProactiveContext] ❌ Exception thrown:', error);
             return null;

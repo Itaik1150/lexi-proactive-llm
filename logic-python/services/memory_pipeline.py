@@ -39,6 +39,7 @@ MAX_EVENTS = 5
 CONTEXT_MESSAGES = 4      # earlier messages shown as context when a conversation is analysed again
 MAX_TRANSCRIPT_CHARS = 20000
 BATCH_LIMIT = 25          # conversations per run (bounds LLM cost per cycle)
+DEFAULT_MEMORY_MODEL = "gpt-4.1"
 TEMPERATURE = 0
 MAX_TOKENS = 1200
 
@@ -409,13 +410,14 @@ _llm = None
 
 
 def _own_llm():
-    """A private LLM client, the same model for every participant (default: the protocol's GPT-4o)."""
+    """A private LLM client, the same model for every participant."""
     global _llm
     if _llm is None:
         from services.llm_service import ProactiveLogic
         _llm = ProactiveLogic()
-        # MEMORY_LLM_MODEL lets the memory step use another model than the chat; unset = the default.
-        _llm.use_model(os.getenv("MEMORY_LLM_MODEL"))
+        # The memory step uses GPT-4.1 (owner decision, 26 Oct: it followed "no speculation" where GPT-4o
+        # did not). MEMORY_LLM_MODEL overrides it; the chat and the notifications keep their own model.
+        _llm.use_model(os.getenv("MEMORY_LLM_MODEL") or DEFAULT_MEMORY_MODEL)
         print(f"🧠 memory pipeline model: {_llm.provider} / {_llm.model}")
     return _llm
 
