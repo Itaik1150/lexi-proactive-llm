@@ -463,6 +463,7 @@ $RECYCLE.BIN/
 # =============================================================================
 
 # Internal working documents (not for public repo)
+docs/private/
 AI_GUIDELINES.md
 DEPLOYMENT.md
 PLAN.md
