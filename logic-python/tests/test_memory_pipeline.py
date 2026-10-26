@@ -40,9 +40,38 @@ GOOD = {
 }
 
 
+class FakeSession:
+    """Records that the pipeline stored its results inside ONE transaction."""
+    def __init__(self):
+        self.transactions = 0
+        self.aborted = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def with_transaction(self, fn):
+        self.transactions += 1
+        try:
+            return fn(self)
+        except Exception:
+            self.aborted += 1
+            raise
+
+
+class FakeDb(dict):
+    def __init__(self):
+        super().__init__()
+        self.session = FakeSession()
+        self.client = MagicMock()
+        self.client.start_session.return_value = self.session
+
+
 def make_db(messages, meta_scan=None, claim_ok=True, user_found=True, notes=None, stored=None):
     """A database double that records what the pipeline writes."""
-    db = {}
+    db = FakeDb()
     conversations = MagicMock()
     conversations.find.return_value.sort.return_value = messages
     users = MagicMock()
@@ -51,7 +80,7 @@ def make_db(messages, meta_scan=None, claim_ok=True, user_found=True, notes=None
     }
     users.update_one.return_value = MagicMock(matched_count=1 if user_found else 0)
     metas = MagicMock()
-    metas.update_one.return_value = MagicMock(modified_count=1 if claim_ok else 0)
+    metas.update_one.return_value = MagicMock(modified_count=1 if claim_ok else 0, matched_count=1 if claim_ok else 0)
     db["conversations"], db["users"], db["metadata_conversations"] = conversations, users, metas
     meta = {"_id": CONV_ID, "userId": str(USER_ID), "isFinished": True, "memory_scan": meta_scan or {}}
     return db, meta
@@ -258,6 +287,55 @@ class OneConversation(unittest.TestCase):
         db, meta = make_db([msg(1, "hi")])
         mp.process_conversation(db, llm_returning({"summary": "The user said hi.", "events": []}), meta, NOW)
         self.assertNotIn("$push", db["users"].update_one.call_args.args[1])
+
+
+class ExactlyOnce(unittest.TestCase):
+    def ok(self, n=1):
+        return MagicMock(modified_count=n, matched_count=n)
+
+    def test_memory_and_progress_are_stored_in_one_transaction(self):
+        db, meta = make_db([msg(1, "hi")])
+        mp.process_conversation(db, llm_returning(GOOD), meta, NOW)
+        self.assertEqual(db.session.transactions, 1)
+        self.assertEqual(db.session.aborted, 0)
+        self.assertIsNotNone(db["users"].update_one.call_args.kwargs["session"])
+        self.assertIsNotNone(db["metadata_conversations"].update_one.call_args.kwargs["session"])
+
+    def test_progress_is_only_advanced_from_the_value_this_run_started_from(self):
+        db, meta = make_db([msg(1, "hi"), msg(2, "x", "assistant"), msg(3, "more")], meta_scan={"last_message_number": 2})
+        mp.process_conversation(db, llm_returning(GOOD), meta, NOW)
+        flt = db["metadata_conversations"].update_one.call_args.args[0]
+        self.assertEqual(flt["memory_scan.last_message_number"], 2)
+
+    def test_first_analysis_accepts_a_conversation_with_no_progress_yet(self):
+        db, meta = make_db([msg(1, "hi")])
+        mp.process_conversation(db, llm_returning(GOOD), meta, NOW)
+        flt = db["metadata_conversations"].update_one.call_args.args[0]
+        self.assertIn("$or", flt)
+
+    def test_when_another_run_got_there_first_nothing_is_stored_twice(self):
+        db, meta = make_db([msg(1, "hi")])
+        # claim succeeds, then the progress guard finds the conversation already analysed
+        db["metadata_conversations"].update_one.side_effect = [self.ok(1), self.ok(0)]
+        self.assertEqual(mp.process_conversation(db, llm_returning(GOOD), meta, NOW), "already_done")
+        self.assertEqual(db.session.aborted, 1)   # the whole transaction, including the user write, is rolled back
+
+    def test_a_crash_inside_the_transaction_stores_nothing_and_is_retried_later(self):
+        db, meta = make_db([msg(1, "hi")])
+        db["users"].update_one.side_effect = RuntimeError("connection lost")
+        self.assertEqual(mp.process_conversation(db, llm_returning(GOOD), meta, NOW), "failed")
+        self.assertEqual(db.session.aborted, 1)
+        self.assertFalse(any("memory_scan.last_message_number" in w for w in scan_updates(db)))
+
+    def test_running_the_same_conversation_twice_asks_the_model_once(self):
+        """The second run finds progress == newest message and no new participant text."""
+        msgs = [msg(1, "hi"), msg(2, "hello", "assistant")]
+        db, meta = make_db(msgs)
+        llm = llm_returning(GOOD)
+        mp.process_conversation(db, llm, meta, NOW)
+        again = dict(meta, memory_scan={"last_message_number": 2, "event_count": 2})
+        self.assertEqual(mp.process_conversation(db, llm, again, NOW), "nothing_new")
+        self.assertEqual(llm.call_with_prompt.call_count, 1)
 
 
 class SameForEveryCondition(unittest.TestCase):

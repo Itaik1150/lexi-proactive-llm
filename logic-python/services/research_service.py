@@ -19,6 +19,7 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://master-thesis-2026-2
 from utils.mongodb_client import mongodb_client
 from services.fcm_service import FCMService
 from services.llm_service import ProactiveLogic
+from heuristics import registry as heuristic_registry
 from services import injection_state, log_schema
 from services.schedule_utils import daily_quota
 
@@ -390,6 +391,10 @@ class ResearchService:
         Returns "reactive" if all weights are 0 or the dict is empty.
         """
         active = {k: v for k, v in weights.items() if isinstance(v, (int, float)) and v > 0}
+        dormant = [k for k in active if k != "reactive" and not heuristic_registry.is_active(k)]
+        if dormant:
+            print(f"⚠️  _select_heuristic: ignoring dormant heuristic(s) {dormant} (see heuristics/registry.py)")
+            active = {k: v for k, v in active.items() if k not in dormant}
         if not active:
             return "reactive"
         total = sum(active.values())
@@ -425,21 +430,9 @@ class ResearchService:
             after Task 6.2 guaranteed fallbacks)
           - An unhandled exception is raised inside the heuristic
         """
-        from heuristics.affective import AffectiveHeuristic
-        from heuristics.temporal import TemporalHeuristic
-        from heuristics.behavioural_gap import BehaviouralGapHeuristic
-        from heuristics.generic import GenericHeuristic
-
-        cls_map = {
-            "affective":      AffectiveHeuristic,
-            "temporal":       TemporalHeuristic,
-            "behaviouralGap": BehaviouralGapHeuristic,
-            "generic":        GenericHeuristic,
-        }
-
-        cls = cls_map.get(selected)
+        cls = heuristic_registry.get_class(selected)
         if not cls:
-            print(f"⚠️  _run_selected_heuristic: unknown heuristic '{selected}'")
+            print(f"⚠️  _run_selected_heuristic: '{selected}' is unknown or dormant (see heuristics/registry.py)")
             return None, None
 
         h = cls(

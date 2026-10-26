@@ -422,9 +422,9 @@ if __name__ == "__main__":
         id="reload_schedules", replace_existing=True,
     )
 
-    # Memory for every finished conversation, every 5 minutes (one run at a time).
+    # Memory for every finished conversation, every 2 minutes (one run at a time).
     scheduler.add_job(
-        memory_job, "interval", minutes=5,
+        memory_job, "interval", minutes=2,
         id="memory_pipeline", replace_existing=True, max_instances=1, coalesce=True,
     )
 
@@ -439,7 +439,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"   Proactive jobs registered : {registered}")
     print(f"   Schedule reload           : every hour (top of the hour)")
-    print(f"   Memory pipeline           : every 5 min (all participants)")
+    print(f"   Memory pipeline           : every 2 min (all participants)")
     print(f"   Heartbeat                 : every 30 min")
     print(f"   Per-user day-of-week + heuristic weights re-verified live every cycle")
     print("   Press Ctrl+C to stop.")

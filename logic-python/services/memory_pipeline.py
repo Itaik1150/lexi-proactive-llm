@@ -24,6 +24,7 @@ let this job change what another job is using.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -258,10 +259,58 @@ def _fail(db, meta: dict, now: datetime) -> None:
     )
 
 
+class _AlreadyDone(Exception):
+    """Another run analysed these messages first; this run's results must not be stored."""
+
+
+def _in_transaction(db, fn):
+    """
+    Run fn(session) as ONE database transaction, so the memory and the progress mark are stored
+    together or not at all. Without a client (the test doubles) fn runs without a session.
+    """
+    try:
+        client = db.client
+    except AttributeError:
+        return fn(None)
+    with client.start_session() as session:
+        return session.with_transaction(fn)
+
+
+def _mark_scanned(db, meta: dict, now: datetime, newest: int, extra_events: int, expected: int, session=None) -> None:
+    """
+    Record that the conversation was analysed up to message `newest`, ONLY if nobody did it since this
+    run started (compare-and-set on the progress). Raises _AlreadyDone otherwise, which aborts the
+    transaction, so the same messages can never be stored twice.
+    """
+    if expected:
+        guard = {"memory_scan.last_message_number": expected}
+    else:
+        guard = {"$or": [{"memory_scan.last_message_number": 0},
+                         {"memory_scan.last_message_number": {"$exists": False}}]}
+    total = int((meta.get("memory_scan") or {}).get("event_count") or 0) + extra_events
+    res = db["metadata_conversations"].update_one(
+        {"_id": meta["_id"], **guard},
+        {"$set": {
+            "memory_scan.last_message_number": newest,
+            # The time the run started, not the time it finished: a message that arrives while the
+            # model is working is newer than this and is picked up by the next run.
+            "memory_scan.scanned_at": now,
+            "memory_scan.lock_until": now,
+            "memory_scan.event_count": total,
+        }},
+        session=session,
+    )
+    if res.matched_count != 1:
+        raise _AlreadyDone()
+
+
 def process_conversation(db, llm, meta: dict, now: datetime) -> str:
     """
-    Analyse one ready conversation. Returns "analysed", "nothing_new", "locked" or "failed".
-    Progress is written only after the memory was stored, so a failure is retried.
+    Analyse one ready conversation. Returns "analysed", "nothing_new", "locked", "already_done" or "failed".
+
+    Each batch of messages is stored exactly once: a short lock keeps runs apart, and the memory and
+    the progress mark are written in one transaction that only succeeds if the progress is still what
+    this run started from. A failure stores nothing and is retried after a back-off.
     """
     if not _claim(db, meta, now):
         return "locked"
@@ -275,7 +324,7 @@ def process_conversation(db, llm, meta: dict, now: datetime) -> str:
 
         if not has_new_participant_text(messages, last_number):
             # e.g. the opener the engine created for a notification, before the participant replied
-            _mark_scanned(db, meta, now, newest, extra_events=0)
+            _in_transaction(db, lambda s: _mark_scanned(db, meta, now, newest, 0, last_number, s))
             return "nothing_new"
 
         shown, first_new = new_part(messages, last_number)
@@ -302,13 +351,20 @@ def process_conversation(db, llm, meta: dict, now: datetime) -> str:
             }}
         if docs:
             update["$push"] = {"proactiveMemory.emotional_memories": {"$each": docs}}
-        if update:
-            res = db["users"].update_one({"_id": user_id}, update)
-            if res.matched_count != 1:
-                raise RuntimeError(f"participant {user_id} not found")
-        _mark_scanned(db, meta, now, newest, extra_events=len(docs))
+
+        def store(session):
+            if update:
+                res = db["users"].update_one({"_id": user_id}, update, session=session)
+                if res.matched_count != 1:
+                    raise RuntimeError(f"participant {user_id} not found")
+            _mark_scanned(db, meta, now, newest, len(docs), last_number, session)
+
+        _in_transaction(db, store)
         print(f"🧠 memory: conversation {conv_id[:8]} -> {len(docs)} event(s), summary={'yes' if summary else 'no'}")
         return "analysed"
+    except _AlreadyDone:
+        print(f"ℹ️  memory pipeline: conversation {conv_id[:8]} was analysed by another run; nothing stored twice")
+        return "already_done"
     except Exception as e:
         print(f"⚠️  memory pipeline, conversation {conv_id[:8]}: {e}")
         try:
@@ -316,21 +372,6 @@ def process_conversation(db, llm, meta: dict, now: datetime) -> str:
         except Exception as e2:
             print(f"⚠️  memory pipeline could not record the failure: {e2}")
         return "failed"
-
-
-def _mark_scanned(db, meta: dict, now: datetime, newest: int, extra_events: int) -> None:
-    total = int((meta.get("memory_scan") or {}).get("event_count") or 0) + extra_events
-    db["metadata_conversations"].update_one(
-        {"_id": meta["_id"]},
-        {"$set": {
-            "memory_scan.last_message_number": newest,
-            # The time the run started, not the time it finished: a message that arrives while the
-            # model is working is newer than this and is picked up by the next run.
-            "memory_scan.scanned_at": now,
-            "memory_scan.lock_until": now,
-            "memory_scan.event_count": total,
-        }},
-    )
 
 
 def _user_notes(db, meta: dict) -> dict:
@@ -352,7 +393,7 @@ def run_pipeline(db, llm, now: Optional[datetime] = None, only_user_id: Optional
                  limit: int = BATCH_LIMIT) -> Dict[str, int]:
     """Analyse every ready conversation (optionally one participant's). Returns counts per outcome."""
     now = now or datetime.now(timezone.utc)
-    counts = {"analysed": 0, "nothing_new": 0, "locked": 0, "failed": 0}
+    counts = {"analysed": 0, "nothing_new": 0, "locked": 0, "already_done": 0, "failed": 0}
     metas = list(
         db["metadata_conversations"].find(ready_query(now, only_user_id)).sort("lastMessageDate", 1).limit(limit)
     )
@@ -365,11 +406,14 @@ _llm = None
 
 
 def _own_llm():
-    """A private LLM client on the environment's default model (the protocol's GPT-4o) for everyone."""
+    """A private LLM client, the same model for every participant (default: the protocol's GPT-4o)."""
     global _llm
     if _llm is None:
         from services.llm_service import ProactiveLogic
         _llm = ProactiveLogic()
+        # MEMORY_LLM_MODEL lets the memory step use another model than the chat; unset = the default.
+        _llm.use_model(os.getenv("MEMORY_LLM_MODEL"))
+        print(f"🧠 memory pipeline model: {_llm.provider} / {_llm.model}")
     return _llm
 
 
@@ -378,11 +422,11 @@ def run_job(only_user_id: Optional[str] = None) -> Dict[str, int]:
     from utils.mongodb_client import MongoDBClient
     client = MongoDBClient()
     if not client.connect():
-        return {"analysed": 0, "nothing_new": 0, "locked": 0, "failed": 0}
+        return {"analysed": 0, "nothing_new": 0, "locked": 0, "already_done": 0, "failed": 0}
     try:
         return run_pipeline(client.db, _own_llm(), only_user_id=only_user_id)
     except Exception as e:
         print(f"⚠️  memory pipeline run failed: {e}")
-        return {"analysed": 0, "nothing_new": 0, "locked": 0, "failed": 1}
+        return {"analysed": 0, "nothing_new": 0, "locked": 0, "already_done": 0, "failed": 1}
     finally:
         client.disconnect()
