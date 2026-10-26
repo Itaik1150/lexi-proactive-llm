@@ -234,6 +234,11 @@ class OneConversation(unittest.TestCase):
         self.assertTrue(kwargs["json_mode"])
         self.assertIn("Participant: hi", kwargs["user_content"])
 
+    def test_the_prompt_forbids_using_what_only_lexi_said_and_speculation(self):
+        self.assertIn("Do not include anything that only Lexi said", mp.MEMORY_PROMPT)
+        self.assertIn("Do not infer or speculate", mp.MEMORY_PROMPT)
+        self.assertIn("did not say when", mp.MEMORY_PROMPT)
+
     def test_a_failing_model_stores_nothing_and_does_not_advance_progress(self):
         db, meta = make_db([msg(1, "hi")])
         llm = MagicMock()

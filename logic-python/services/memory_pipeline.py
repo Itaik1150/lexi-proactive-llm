@@ -46,7 +46,10 @@ MAX_TOKENS = 1200
 MEMORY_PROMPT = (
     "You are the memory of a warm companion app. You read one finished conversation between a person "
     "and Lexi, and write notes that Lexi will use later. Use only what the person said (Lexi's lines "
-    "are context only). Never invent anything.\n\n"
+    "are context only). Never invent anything. Do not include anything that only Lexi said, such as her "
+    "reassurance or guesses. Do not infer or speculate: write only what the person actually said, "
+    "with no interpretation (no \"indicating\", \"suggesting\" or \"seems to\"). If the person did not say when "
+    "something happens, set when and when_date to null; never take a date from another line.\n\n"
     "1. Summary (2-4 sentences, third person: \"The user ...\"): what they talked about, with the "
     "concrete details a caring friend would remember: names of people and pets, places, plans, events, "
     "how they felt, and anything left open or worth asking about later. Neutral and factual, no "
