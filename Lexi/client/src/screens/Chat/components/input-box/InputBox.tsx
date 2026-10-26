@@ -104,6 +104,8 @@ const InputBox: React.FC<InputBoxProps> = ({
     };
 
     const handleKeyDown = (event) => {
+        // on a phone Enter starts a new line; only the send button sends
+        if (isMobile) return;
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             handleSendMessage();
