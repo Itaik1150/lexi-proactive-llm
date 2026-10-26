@@ -62,6 +62,9 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | D9 | **Memory has two kinds** (see "Memory design" below). |
 | D10 | **Data donation** (screen time) is **decided at the end**, with pros and cons recorded (Phase 6). |
 | D11 | **Like/dislike micro-feedback** is not working at the moment; whether to keep it (participant burden) is decided later (Phase 6). |
+| D13 | **Heuristic-memory lifecycle (M4):** **no expiry**; each event is used **once**; the event chosen is the highest meaningfulness score, ties broken by the most recent. A "second use" rule (score 8 or more, at least 3 days later, written as a follow-up) is **not built now**; it stays available as a switch if the rehearsal shows too many fallbacks. |
+| D14 | **The LLM that writes the Affective notification also sees the recent dated summaries**, with the chosen event (if any) as the main subject. So even a day without a fresh event gives a notification that shows continuity. The **Standard** condition stays neutral and sees none of it. The notification stays **short** (one sentence, about 15 words). |
+| D15 | **The chat LLM gets all the dated summaries in its system prompt in every conversation, for every participant of every condition** (identical across conditions), plus the memory that created the notification when the conversation was opened from one. |
 | D12 *(proposed)* | The model gets **no web access**: it is not needed for the research question and would add uncontrolled variation between participants. |
 
 ### Memory design (agreed 26 Oct, to be built in Phase 2)
@@ -112,10 +115,10 @@ Both kinds are built **after every conversation, for every participant of every 
 |---|---|---|---|
 | M1 | **The two-kind memory pipeline (D9)**, built after every conversation for every participant of every condition, outside the send path | Claude | ⬜ |
 | M2 | **Dates**: each summary and memory carries its date; the chat prompt states today's date (participant's time zone); a notification's source memory says how long ago it happened | Claude | ⬜ |
-| M3 | **Chat prompt content** (D9.3): all dated summaries in every conversation + the memory behind the notification in a notification-opened conversation, for every heuristic (V7) | Claude | ⬜ |
-| M4 | Heuristic-memory lifecycle: validity period, reuse, cooling-off (**to discuss next**) | owner + Claude | ⬜ |
-| M5 | Fallback rule (D3) implemented the same for all heuristics; fallback messages keep the heuristic's meaning; reported in the logs | Claude | ⬜ |
-| M6 | **Prompt design, one scenario at a time**: (1) chat persona, (2) per-conversation summary, (3) heuristic memory extraction with score, (4) Affective notification, (5) Standard (neutral) notification, (6) fallback messages, (7) the scheduling agent. For each: agree the exact wording, implement it, then give it to the protocol (X3). Also: a single source of truth, and fix the 15 vs 20 word conflict | owner + Claude | ⬜ |
+| M3 | **Chat prompt content** (D9.3, D15): all dated summaries in every conversation + the memory behind the notification in a notification-opened conversation, for every heuristic (V7). **Automated test**: the chat prompt carries the same summaries for a Reactive, a Standard and an Affective participant | Claude | ⬜ |
+| M4 | Heuristic-memory lifecycle **decided (D13)**: no expiry, once, ranked by score then recency; remove the 72-hour expiry; log which memory was used (`memory_id`) and how old it was | Claude | ⬜ |
+| M5 | Fallback rule (D3) implemented the same for all heuristics; fallback messages keep the heuristic's meaning; for Affective the fallback uses the recent summaries (D14); reported in the logs | Claude | ⬜ |
+| M6 | **Prompt design, one scenario at a time**: (1) chat persona, (2) per-conversation summary, (3) heuristic memory extraction with score, (4) Affective notification, (5) Standard (neutral) notification, (6) fallback messages, (7) the scheduling agent. Notifications are concise (one sentence, about 15 words). For each: agree the exact wording, implement it, then give it to the protocol (X3). Also: a single source of truth, and fix the 15 vs 20 word conflict | owner + Claude | ⬜ |
 | M7 | **Session disclosure score (DV)**: one 1–10 score per conversation, measured on the whole transcript, the same way for every condition. It is an **outcome measure for the analysis, not a mechanism of the app**, so it is best computed **offline after the study** from the stored transcripts with a validated prompt (and a human-rated sample to check it). This is a different score from the per-memory score of D9.2. | Claude (analysis script) + owner (prompt wording) | ⬜ |
 
 ### Phase 3 — Study instrumentation
@@ -167,10 +170,10 @@ Both kinds are built **after every conversation, for every participant of every 
 
 ### Open design questions (for the discussion)
 
-1. **M4 lifecycle:** how long should a heuristic memory live, may it fire twice, and what is the cooling-off period?
-2. **The size and shape of the dated summaries** in the chat prompt (token budget instead of a fixed 30; optionally one running profile paragraph).
-3. **Web access (D12):** confirm that the model has none.
-4. **P1:** which randomisation route (Prolific lists or a randomising link).
+1. **The size and shape of the dated summaries** in the chat prompt (token budget instead of a fixed 30; optionally one running profile paragraph).
+2. **Web access (D12):** confirm that the model has none.
+3. **P1:** which randomisation route (Prolific lists or a randomising link).
+4. **M6:** the exact wording of each prompt, starting with the Affective notification.
 
 *Protocol open points copied from the draft (so they are not lost): "Verify required interaction frequency? Minimum conversation length to count as a valid interaction?", "Verify: confirm specific statistical models and assure adequate statistical power", A.2 "add the prompt added in code — what about the score it should give?", A.3 "change? … should add the rows added to the prompt inside code", A.4 "[Paste the sentiment analysis prompt here]".*
 
