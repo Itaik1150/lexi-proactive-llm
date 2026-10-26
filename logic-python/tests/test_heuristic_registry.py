@@ -14,17 +14,18 @@ from heuristics import registry
 
 
 class Registry(unittest.TestCase):
-    def test_only_affective_is_active_for_now(self):
-        self.assertEqual([n for n, i in registry.REGISTRY.items() if i.active], ["affective"])
+    def test_the_two_study_heuristics_are_active(self):
+        self.assertEqual(sorted(n for n, i in registry.REGISTRY.items() if i.active), ["affective", "generic"])
 
     def test_dormant_heuristics_stay_registered_so_they_can_return(self):
-        for name in ("temporal", "behaviouralGap", "generic"):
+        for name in ("temporal", "behaviouralGap"):
             self.assertIn(name, registry.REGISTRY)
             self.assertFalse(registry.is_active(name))
             self.assertIsNone(registry.get_class(name))
 
     def test_the_active_class_can_be_loaded(self):
         self.assertEqual(registry.get_class("affective").__name__, "AffectiveHeuristic")
+        self.assertEqual(registry.get_class("generic").__name__, "GenericHeuristic")
 
     def test_every_registered_class_exists(self):
         from importlib import import_module
@@ -43,11 +44,12 @@ class SenderUsesTheRegistry(unittest.TestCase):
 
     def test_a_dormant_heuristic_in_the_weights_is_never_drawn(self):
         for _ in range(50):
-            self.assertEqual(self.svc._select_heuristic({"temporal": 60, "generic": 40}), "reactive")
+            self.assertEqual(self.svc._select_heuristic({"temporal": 60, "behaviouralGap": 40}), "reactive")
 
     def test_active_and_reactive_are_still_drawn(self):
-        seen = {self.svc._select_heuristic({"affective": 50, "reactive": 30, "temporal": 20}) for _ in range(300)}
-        self.assertEqual(seen, {"affective", "reactive"})
+        seen = {self.svc._select_heuristic({"affective": 40, "generic": 30, "reactive": 20, "temporal": 10})
+                for _ in range(400)}
+        self.assertEqual(seen, {"affective", "generic", "reactive"})
 
     def test_asking_to_run_a_dormant_heuristic_sends_nothing(self):
         self.assertEqual(self.svc._run_selected_heuristic("temporal", {}, {}), (None, None))
