@@ -45,38 +45,55 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 ## Sprint plan — from here to a deployable study app
 
-*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct; kept privately in `docs/private/`, not in git) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
+*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** The protocol is kept privately (git-ignored, the repository is public): `docs/private/Proactive_Lexi_Experiment_Protocol_draft-2026-10-25.pdf` and the editable LaTeX source `docs/private/protocol/protocol.tex`, which is edited as the work below is decided, so that it can be pasted into Overleaf for submission. Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
 
 ### Decisions made (26 Oct)
 
 | # | Decision |
 |---|---|
-| D1 | The 87 % / 93 % fallback rate in the existing data is **accepted for now**: it comes from demo accounts that wrote little. It will be **re-measured with real interaction** (pilot) before the study. |
-| D2 | **Memory must be built and used exactly the same way for every condition/heuristic.** (The protocol says memory retrieval and behaviour inside a conversation are strictly identical across conditions.) |
-| D3 | When an Affective participant has **no usable memory the fallback is sent** and it **keeps the affective meaning** of the condition (warm, supportive; not neutral). It is logged (`was_fallback`) and reported. |
+| D1 | The 87 % / 93 % fallback rate in the existing data is **accepted for now**: it comes from demo accounts that wrote little. It is **re-measured with real interaction** (rehearsal and pilot). |
+| D2 | **Memory is built and used exactly the same way for every condition/heuristic** (the protocol: memory retrieval and behaviour inside a conversation are strictly identical across conditions). |
+| D3 | When a participant has **no usable memory the fallback is sent — for every heuristic, the same way**. The fallback keeps the **meaning of the heuristic** that sent it (Affective: warm and supportive; Standard: neutral invitation). It is logged (`was_fallback`) and reported. |
 | D4 | The **Finish button moves**: a participant could not press it where it is. |
-| D5 | **Questionnaires are the owner's task** (to bring); Claude integrates them. Participants come from **Prolific**; the study must be able to **verify they really take part** (answer notifications, finish sessions, fill questionnaires). |
-| D6 | The **protocol is unfinished**; finishing it is a task (below). |
+| D5 | **Questionnaires are the owner's task**; participants come from **Prolific** and the study must verify they really take part (answer notifications, finish sessions, fill questionnaires). |
+| D6 | The **protocol is unfinished**; finishing it is a task (X2, X3). |
+| D7 | **One experiment per group** (Reactive / Standard / Affective); no assignment code. Condition = which experiment a participant belongs to. *Risk to handle: see P1.* |
+| D8 | **English only**, everywhere in the code (the whole study is in English). |
+| D9 | **Memory has two kinds** (see "Memory design" below). |
+| D10 | **Data donation** (screen time) is **decided at the end**, with pros and cons recorded (Phase 6). |
+| D11 | **Like/dislike micro-feedback** is not working at the moment; whether to keep it (participant burden) is decided later (Phase 6). |
+| D12 *(proposed)* | The model gets **no web access**: it is not needed for the research question and would add uncontrolled variation between participants. |
+
+### Memory design (agreed 26 Oct, to be built in Phase 2)
+
+Both kinds are built **after every conversation, for every participant of every condition** (the condition only decides what the *notification* does with them).
+
+1. **General memory — one dated summary per conversation.** Written when the conversation ends (Finish or inactivity timeout). If the participant continues the same conversation later, that conversation's summary is **replaced** by a new summary of the whole conversation (never appended as a second note, which is what happens today: summaries are made per analysed batch). Each summary carries the conversation's **date**. The chat model receives the dated summaries in its system prompt (kept within a token budget; the oldest are dropped first).
+2. **Heuristic memory — specific events that answer a heuristic** (emotional events for Affective; upcoming events for Temporal; stated plans for Behavioural gap). Each is stored **separately**, with its **date**, its **source conversation** and a **score for how meaningful it is** (assigned by the LLM at extraction), so that when the heuristic is drawn the **most meaningful unused** one is chosen and the notification is written from it.
+3. **What the chat model sees:** in **every** conversation all the dated summaries; in a conversation that was opened by a notification **also the heuristic memory that created that notification** (for every heuristic, not only Affective).
+4. **Same pipeline for all conditions:** this also makes the protocol's measure "emotional memories generated" comparable across conditions, because it is computed the same way for everyone.
+
+*Open (M4, to discuss):* how long a heuristic memory stays valid, and whether it may be used more than once.
 
 ### What the protocol requires that the code does not do yet (found 26 Oct)
 
 | # | Protocol says | Code today | Task |
 |---|---|---|---|
-| F1 | **Between-subjects**: each participant stays in one of three conditions for 14 days, n = 20 each | the condition is drawn at random **at every send** by weights (a within-person mix); there is no per-participant assignment | P1 |
-| F2 | Memory retrieval in chat is **identical across conditions** | summaries are written only when the Affective heuristic is drawn, but injected into every chat; the nudge's source context exists only for Affective | M1, M3 |
-| F3 | DV "emotional memories generated" is counted **for everyone** | memory is extracted only for the drawn heuristic, at send time | M1 |
-| F4 | DV **session disclosure score 1–10** from a post-interaction LLM analysis | does not exist anywhere in the code | M7 |
-| F5 | A conversation ends with the **Finish** button (conversation length) | button not pressable for at least one participant | P6 |
-| F6 | **Notification conversion** (reply within 60 min) and **latency to tap** | `opened_at` (first fetch) and `first_reply_at` are logged; no explicit "tapped" event | P7 |
-| F7 | **Like/dislike micro-feedback** on opening a proactive intervention | exists, but "opened from a notification" is labelled unreliably (V8) | P4 |
+| F1 | Participants are randomly assigned to one of three conditions for 14 days | per-send random draw inside one experiment; **owner will use one experiment per group** | P1 |
+| F2 | Memory retrieval in chat is **identical across conditions** | summaries are written only when the Affective heuristic is drawn, yet injected into every chat; the nudge's source context exists only for Affective | M1, M3 |
+| F3 | "Emotional memories generated" is counted **for everyone** | memory is extracted only for the drawn heuristic, at send time | M1 |
+| F4 | A **session disclosure score 1–10** from a post-interaction LLM analysis (a *different* score from the per-memory score; see M7) | does not exist | M7 |
+| F5 | A conversation ends with the **Finish** button | not pressable for at least one participant | P6 |
+| F6 | **Notification conversion** (reply within 60 min) and **latency to tap** | `opened_at` and `first_reply_at` are logged; no explicit "tapped" event | P7 |
+| F7 | **Like/dislike micro-feedback** on opening a proactive intervention | **not working at the moment**; "opened from a notification" is also labelled unreliably (V8) | P4 |
 | F8 | **Qualtrics bi-weekly** + in-app **IMS WEALTH** event surveys | not present (owner brings the questionnaires) | P2 |
-| F9 | **Data donation**: external social-app screen time per day | nothing; needs Android usage-access permission | P3 |
-| F10 | **Prolific** recruitment, ≥ 6 sessions/week compliance, payment | no Prolific linkage at all | P5 |
-| F11 | Consent page, then demographic registration (name, age, gender) | forms exist; flow not verified for this protocol | P8 |
-| F12 | English-speaking participants | some defaults are Hebrew (`defaultLanguage` schema default `he`) | I4 |
-| F13 | Time zones "compatible with the notification schedule" | scheduler fixed to Asia/Jerusalem windows | I5 |
-| F14 | Appendix A shows the **exact prompts** | prompts are assembled from several places; researcher prompt says "max 15 words", system suffix "20" | M6 |
-| F15 | The chat model should be able to give "a feeling" of when past events happened | the chat prompt contains **no date at all**, summaries are undated, the memory's date never reaches the model | M2 |
+| F9 | **Data donation**: external social-app screen time | nothing | decide at the end (Phase 6) |
+| F10 | **Prolific** recruitment, ≥ 6 sessions/week, payment | no Prolific linkage | P5 |
+| F11 | Consent page, demographic registration (name, age, gender) | forms exist; flow not verified for this protocol | P8 |
+| F12 | English-speaking participants only | Hebrew in the code: static fallback templates (4 heuristic files), Hebrew-letter language detection, `he` defaults (experiment model, heuristic base class, scheduler helpers) | I4 |
+| F13 | Time zones "compatible with the notification schedule" | scheduler windows are fixed to Asia/Jerusalem | I5 |
+| F14 | Appendix A shows the **exact prompts** | assembled from several places (researcher prompt says "max 15 words", system suffix "20") | M6, X3 |
+| F15 | The chat model can convey *when* past events happened | the chat prompt has **no date at all**; summaries and memories are undated | M2 |
 
 ### Phase 1 — Infrastructure (blocking)
 
@@ -85,7 +102,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | I1 | Upgrade Render to the always-on plan; confirm heartbeat every 30 min (R2a) | owner, then Claude checks logs | ⬜ |
 | I2 | Restart-safe scheduler: re-plan the rest of today at startup, `misfire_grace_time`, heartbeat in the database (R2) | Claude | ⬜ |
 | I3 | Signed **release** APK (keystore, `versionCode` bump, join page serves it) | owner (keystore) + Claude | ⬜ |
-| I4 | English defaults: experiment `defaultLanguage = en`, English fallbacks only | Claude | ⬜ |
+| I4 | **English only (D8)**: remove Hebrew templates and Hebrew-letter language detection; `defaultLanguage = en` as the model default; one language path in the prompts | Claude | ⬜ |
 | I5 | Time zones: screen Prolific by time zone, or store the participant's time zone and schedule in it | decision + Claude | ⬜ |
 | I6 | Close S12 (experiment endpoints that expose prompts and settings) | Claude | ⬜ |
 
@@ -93,22 +110,21 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 | ID | Task | Who | Status |
 |---|---|---|---|
-| M1 | **One shared memory pipeline for all conditions** (D2): build memory after a conversation ends (Finish or inactivity), for every participant, independent of which heuristic is drawn; the condition only decides how the memory is *used* in a notification | Claude | ⬜ |
-| M2 | **Dated memory**: every summary and memory carries its date; the chat prompt states today's date; the nudge's source context says how long ago it happened | Claude | ⬜ |
-| M3 | **Same chat context in all three conditions** (V7): same summaries, same retrieval | Claude | ⬜ |
-| M4 | Memory lifecycle: how long a memory is valid and whether it may be used more than once (**to discuss next**) | owner + Claude | ⬜ |
-| M5 | Affective fallback stays warm (D3); re-measure fallback rate in the pilot (D1) | Claude | ⬜ |
-| M6 | One source of truth for prompts; fix the 15 vs 20 word conflict; **export the exact assembled prompts** for protocol Appendix A (A.2, A.3) | Claude | ⬜ |
-| M7 | Post-conversation **disclosure score 1–10** (LLM) for every conversation and every condition (A.4 prompt) | Claude + owner (prompt wording) | ⬜ |
+| M1 | **The two-kind memory pipeline (D9)**, built after every conversation for every participant of every condition, outside the send path | Claude | ⬜ |
+| M2 | **Dates**: each summary and memory carries its date; the chat prompt states today's date (participant's time zone); a notification's source memory says how long ago it happened | Claude | ⬜ |
+| M3 | **Chat prompt content** (D9.3): all dated summaries in every conversation + the memory behind the notification in a notification-opened conversation, for every heuristic (V7) | Claude | ⬜ |
+| M4 | Heuristic-memory lifecycle: validity period, reuse, cooling-off (**to discuss next**) | owner + Claude | ⬜ |
+| M5 | Fallback rule (D3) implemented the same for all heuristics; fallback messages keep the heuristic's meaning; reported in the logs | Claude | ⬜ |
+| M6 | **Prompt design, one scenario at a time**: (1) chat persona, (2) per-conversation summary, (3) heuristic memory extraction with score, (4) Affective notification, (5) Standard (neutral) notification, (6) fallback messages, (7) the scheduling agent. For each: agree the exact wording, implement it, then give it to the protocol (X3). Also: a single source of truth, and fix the 15 vs 20 word conflict | owner + Claude | ⬜ |
+| M7 | **Session disclosure score (DV)**: one 1–10 score per conversation, measured on the whole transcript, the same way for every condition. It is an **outcome measure for the analysis, not a mechanism of the app**, so it is best computed **offline after the study** from the stored transcripts with a validated prompt (and a human-rated sample to check it). This is a different score from the per-memory score of D9.2. | Claude (analysis script) + owner (prompt wording) | ⬜ |
 
 ### Phase 3 — Study instrumentation
 
 | ID | Task | Who | Status |
 |---|---|---|---|
-| P1 | **Condition assignment**: balanced random assignment of each participant to Reactive / Standard / Affective once, kept for 14 days (n = 20 each) | decision + Claude | ⬜ |
-| P2 | **Questionnaires**: owner supplies Qualtrics bi-weekly items and IMS WEALTH; Claude integrates (links with the participant's id, when they are shown, a record that they were completed) | owner → Claude | ⬜ |
-| P3 | **Data donation** of external social-app screen time (Android usage access, daily upload) — decide feasibility, consent wording, ethics | owner decision + Claude | ⬜ |
-| P4 | Reliable "opened from a notification" label and linked like/dislike micro-feedback (V8) | Claude | ⬜ |
+| P1 | **Randomisation across the three experiments (D7)**: no code needed, but participants must not choose or drift into a group. Either one Prolific screener, then **you randomise the Prolific ids into three lists** and run three studies with custom allowlists, or a **single randomising join link** (small code: balanced counter, n = 20 each). Also check that the three experiments are **identical except the proactive settings** (persona, model, prompts) | owner decision + Claude (config check, optional link) | ⬜ |
+| P2 | **Questionnaires**: owner supplies Qualtrics bi-weekly items and IMS WEALTH; Claude integrates (links carrying the participant's id, when shown, a record of completion) | owner → Claude | ⬜ |
+| P4 | Make the **like/dislike micro-feedback** work again and label "opened from a notification" reliably (V8) — **only if it is kept** (Phase 6) | Claude | ⬜ |
 | P5 | **Prolific integration**: capture Prolific id, study id and session id at join; completion code/redirect; per-participant **compliance view** (notifications answered, sessions per week, questionnaires done) | owner (Prolific study) + Claude | ⬜ |
 | P6 | **Finish button**: move it and fix the screen insets so nothing sits under the status bar | Claude | ⬜ |
 | P7 | Explicit "notification tapped" event with timestamp (latency, 60-min conversion) | Claude | ⬜ |
@@ -128,19 +144,35 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 | ID | Task | Who | Status |
 |---|---|---|---|
-| X1 | **Ethics approval** — start now (long lead time); it needs the data-donation and notification design from the protocol | owner | ⬜ |
-| X2 | **Protocol, pass 1 (now)**: close the open points in the draft — required interaction frequency and minimum conversation length for a valid session (≥ 6 sessions/week), statistical models and power, Results/Discussion template text | owner | ⬜ |
-| X3 | **Protocol, pass 2 (after Phase 2)**: fill Appendix A with the exact prompts exported from the code (A.2 memory prompt and score, A.3 notification prompt with the system-added rules, A.4 sentiment prompt), and state the fallback rule (D3) | Claude exports, owner writes | ⬜ |
+| X1 | **Ethics approval** — start now (long lead time); it needs the notification design and the data-donation decision | owner | ⬜ |
+| X2 | **Protocol, pass 1 (now)**: close the open points — required interaction frequency and minimum conversation length for a valid session (≥ 6 sessions/week), statistical models and power, Results/Discussion text. Edit `docs/private/protocol/protocol.tex` | owner (+ Claude on request) | ⬜ |
+| X3 | **Protocol, pass 2 (after the prompts of M6 are decided and implemented)**: Appendix A with the exact prompts exported from the code (persona, per-conversation summary, memory extraction with score, Affective notification, Standard notification, fallback, disclosure scoring), and the fallback rule (D3). Edit the same `.tex` | Claude exports, owner writes | ⬜ |
 | X4 | Prolific pilot (a few participants), then launch | owner | ⬜ |
+
+### Phase 6 — Decide at the end
+
+**P3 — Data donation of external social-app screen time (H5).**
+
+| Pros | Cons |
+|---|---|
+| An **objective** measure of social engagement, no self-report bias | Needs the Android **usage-access** permission, which the participant must enable by hand in system settings: a scary step that raises **drop-out and refusals** |
+| Android keeps several days of history, so a **baseline** can be read when the participant joins | **Ethics and consent** weight: app-usage data is sensitive; Prolific and the ethics board will look closely |
+| Only a few apps and minutes per day are needed (small, aggregated data) | **Weak construct**: minutes in WhatsApp or Instagram are not social connectedness, and can go up for reasons unrelated to the agent |
+| A novel contribution for a field-study paper | n = 20 per group with noisy daily minutes gives **low power** for H5, which is the most exploratory hypothesis |
+| | Engineering and testing time: permission flow, daily upload, per-phone differences, the study app's own usage must be excluded |
+
+*Claude's opinion:* **do not build it for the first study.** H5 is the weakest hypothesis, the cost (retention, ethics, engineering) falls on H1–H4, which carry the paper, and the power is low. Measure social engagement with a **short self-report scale in the Qualtrics surveys** instead (cheap, no permission), report H5 as exploratory, and revisit data donation after the pilot or for a follow-up study. If it is kept, make it an **optional opt-in** sub-study, reported separately.
+
+**P4 — Keep the like/dislike micro-feedback?** It is the protocol's real-time measure of intrusiveness (DV 4), but it adds a step every time a participant opens a notification and can itself change the experience. Decide after the rehearsal (H4), with the participants' own feedback on the burden.
 
 ### Open design questions (for the discussion)
 
-1. **M4 lifecycle:** how long should a memory live, may it fire twice, and what is the cooling-off period?
-2. **Summaries for the chat model:** keep a rolling list of dated per-conversation summaries (recommended: dated notes within a token budget plus one running profile paragraph), or build something heavier (a fact store with retrieval)? For 14 days a dated list is enough and easier to audit across conditions.
-3. **P1 mechanism:** three experiments with a single randomising join link, or a `condition` field per participant.
-4. **P3:** is data donation feasible and approved, or dropped/replaced?
+1. **M4 lifecycle:** how long should a heuristic memory live, may it fire twice, and what is the cooling-off period?
+2. **The size and shape of the dated summaries** in the chat prompt (token budget instead of a fixed 30; optionally one running profile paragraph).
+3. **Web access (D12):** confirm that the model has none.
+4. **P1:** which randomisation route (Prolific lists or a randomising link).
 
-*Protocol open points copied from the draft (so they are not lost): "Verify required interaction frequency? Minimum conversation length to count as a valid interaction?", "Verify: confirm specific statistical models and assure adequate statistical power", "add the prompt added in code — what about the score it should give?" (A.2), "change? … should add the rows added to the prompt inside code" (A.3), "[Paste the sentiment analysis prompt here]" (A.4).*
+*Protocol open points copied from the draft (so they are not lost): "Verify required interaction frequency? Minimum conversation length to count as a valid interaction?", "Verify: confirm specific statistical models and assure adequate statistical power", A.2 "add the prompt added in code — what about the score it should give?", A.3 "change? … should add the rows added to the prompt inside code", A.4 "[Paste the sentiment analysis prompt here]".*
 
 ---
 
