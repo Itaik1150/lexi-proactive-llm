@@ -45,7 +45,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 ## Sprint plan — from here to a deployable study app
 
-*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** The protocol is kept privately (git-ignored, the repository is public): the LaTeX source is a Git clone of the Overleaf project at `docs/private/overleaf/main.tex` (since 12 Nov): it is edited as the work below is decided and pushed to Overleaf only on the owner's request; older copies are in `docs/private/old/`. Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
+*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** The protocol is kept privately (git-ignored, the repository is public): the LaTeX source is a Git clone of the Overleaf project at `docs/private/overleaf/main.tex` (since 12 Nov): it is edited as the work below is decided and pushed to Overleaf only on the owner's request; older copies are in `docs/private/old/`. Live checks on the real system are collected in `docs/FINAL_CHECKS.md` and gone through together at the end. Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
 
 ### Decisions made (26 Oct)
 
