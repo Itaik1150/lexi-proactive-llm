@@ -30,7 +30,10 @@ from typing import Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
+from zoneinfo import ZoneInfo
+
 from services import scan_progress
+from services.schedule_utils import STUDY_TIMEZONE
 
 INACTIVITY_MINUTES = 30   # a conversation without a new message for this long counts as finished
 LOCK_MINUTES = 10         # one run owns a conversation for this long
@@ -116,9 +119,11 @@ def has_new_participant_text(messages: List[dict], last_message_number: int) -> 
 
 
 def conversation_date(messages: List[dict], fallback: datetime) -> datetime:
-    """Date used to resolve 'tomorrow' etc.: when the newest participant message was written."""
+    """Date used to resolve 'tomorrow' etc.: when the newest participant message was written (study time)."""
     dates = [_aware(m.get("createdAt")) for m in messages if m.get("role") == "user" and m.get("createdAt")]
-    return max(dates) if dates else fallback
+    newest = max(dates) if dates else fallback
+    # In the study's time zone, so that "today" and "tomorrow" mean the participant's calendar day.
+    return newest.astimezone(ZoneInfo(STUDY_TIMEZONE))
 
 
 def format_transcript(messages: List[dict], first_new_index: int = 0) -> str:

@@ -15,7 +15,7 @@ DOC_ID = "engine"
 
 def build() -> dict:
     from heuristics import affective, registry
-    from services import memory_pipeline, message_pools, random_schedule
+    from services import memory_pipeline, message_pools, random_schedule, schedule_utils
 
     return {
         "_id": DOC_ID,
@@ -54,7 +54,8 @@ def build() -> dict:
                     f"at least {random_schedule.MIN_GAP_MINUTES} minutes apart, drawn daily at 00:01 "
                     "(and for the rest of the day after a restart). The same rule for every proactive condition.",
             "min_gap_minutes": random_schedule.MIN_GAP_MINUTES,
-            "timezone": "Asia/Jerusalem",
+            "timezone": schedule_utils.STUDY_TIMEZONE,
+            "study_window": dict(schedule_utils.STUDY_WINDOW),
         },
     }
 

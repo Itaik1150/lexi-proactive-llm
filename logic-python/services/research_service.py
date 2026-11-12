@@ -21,7 +21,7 @@ from services.fcm_service import FCMService
 from services.llm_service import ProactiveLogic
 from heuristics import registry as heuristic_registry
 from services import injection_state, log_schema
-from services.schedule_utils import daily_quota
+from services.schedule_utils import STUDY_TIMEZONE, daily_quota
 
 class ResearchService:
 
@@ -208,9 +208,9 @@ class ResearchService:
     
     @staticmethod
     def _today_start_utc() -> datetime:
-        """Start of the current Asia/Jerusalem calendar day, expressed in UTC."""
+        """Start of the current calendar day in the study's time zone, expressed in UTC."""
         from zoneinfo import ZoneInfo
-        now_il = datetime.now(ZoneInfo("Asia/Jerusalem"))
+        now_il = datetime.now(ZoneInfo(STUDY_TIMEZONE))
         return now_il.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     def _count_sent_today(self, user_id: str) -> Optional[int]:
@@ -385,11 +385,11 @@ class ResearchService:
         """
         Per-user safety net: check whether today's day-of-week is in this
         user's own experiment schedule.allowedDays. 0=Sun .. 6=Sat.
-        Runs in Jerusalem time to match scheduler.py.
+        Runs in the study's time zone to match scheduler.py.
         """
         from zoneinfo import ZoneInfo
         allowed_days = schedule.get("allowedDays") or list(range(7))
-        py_weekday = datetime.now(ZoneInfo("Asia/Jerusalem")).weekday()
+        py_weekday = datetime.now(ZoneInfo(STUDY_TIMEZONE)).weekday()
         today_sun0 = (py_weekday + 1) % 7
         return today_sun0 in allowed_days
 
@@ -1051,7 +1051,7 @@ class ResearchService:
         username = user.get("username", "Unknown")
 
         # ── Mid-day window clip ────────────────────────────────────────────────
-        tz_il = ZoneInfo("Asia/Jerusalem")
+        tz_il = ZoneInfo(STUDY_TIMEZONE)
         now_il = datetime.now(tz_il)
         try:
             sh, sm = map(int, window_start.split(":"))

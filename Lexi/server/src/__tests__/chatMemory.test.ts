@@ -106,3 +106,15 @@ test('today is stated even when there is no memory yet', () => {
     const text = composeSystemPrompt({ persona: PERSONA, now: NOW });
     assert.equal(text, `${PERSONA}\n\nToday is Monday 26 October 2026.`);
 });
+
+// ── I5: the study runs on UK time ────────────────────────────────────────────
+import { STUDY_TIMEZONE, studyDay } from '../services/chatMemoryPrompt';
+
+test('the chat states today in UK time, also late in the evening in summer time', () => {
+    assert.equal(STUDY_TIMEZONE, 'Europe/London');
+    // 23:30 UTC on 1 July is already 2 July in Britain (BST)
+    assert.equal(studyDay(new Date('2026-07-01T23:30:00Z')), '2026-07-02');
+    assert.equal(todayLine(new Date('2026-07-01T23:30:00Z')), 'Today is Thursday 2 July 2026.');
+    // in winter UK time equals UTC
+    assert.equal(studyDay(new Date('2026-11-12T23:30:00Z')), '2026-11-12');
+});

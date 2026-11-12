@@ -18,13 +18,16 @@ prompt for this heuristic is ignored (docs/REVIEW.md P9).
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import List, Optional
 
 from bson import ObjectId as _ObjectId
 
 from heuristics.base_heuristic import BaseHeuristic
+from zoneinfo import ZoneInfo
+
 from services import message_pools
+from services.schedule_utils import STUDY_TIMEZONE
 
 # ── Protocol appendix A.3. Change it there and here together. ────────────────
 _PROMPT_HEAD = "You write one push notification from Lexi, an AI companion, to a participant in a research study.\n\n"
@@ -186,7 +189,7 @@ class AffectiveHeuristic(BaseHeuristic):
 
         memory = self._memory
         notes = memory.get("conversation_notes") or {}
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(ZoneInfo(STUDY_TIMEZONE)).date()
         self.llm_attempts = 0
 
         event = choose_event(list(memory.get("emotional_memories") or []))

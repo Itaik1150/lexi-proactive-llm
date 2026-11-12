@@ -14,7 +14,19 @@ There is no separate "daily limit" setting.
 """
 from __future__ import annotations
 
+import os
+
 from typing import Iterable, List, Optional, Tuple
+
+# The study's time zone (docs/REVIEW.md I5, owner decision 12 Nov 2026): participants are recruited in
+# Britain, so every clock time of the study is UK time: the notification window, the daily cap's
+# "today", the allowed weekdays, and the dates written into the memory and the notification prompt.
+# Europe/London follows GMT/BST by itself. STUDY_TIMEZONE overrides it without a code change.
+STUDY_TIMEZONE = os.getenv("STUDY_TIMEZONE") or "Europe/London"
+
+# The study's daily notification window in STUDY_TIMEZONE: working hours plus two hours after.
+# It is what the dashboard offers by default; each experiment stores its own window.
+STUDY_WINDOW = {"start": "09:00", "end": "19:00", "count": 2}
 
 # Used when an experiment has proactive enabled but no fire times configured.
 FALLBACK_FIRE_TIMES = ["13:45", "17:30", "21:15"]

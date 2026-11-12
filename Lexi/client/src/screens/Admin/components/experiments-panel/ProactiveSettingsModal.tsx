@@ -46,9 +46,10 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const DEFAULT_SCHEDULE: ScheduleSettings = {
     allowedDays: [0, 1, 2, 3, 4, 5, 6],
-    mode: 'exact',
+    // The study's schedule (docs/REVIEW.md D20, I5): two random times per participant, 09:00-19:00 UK time.
+    mode: 'random',
     fireTimes: ['13:45', '17:30', '21:15'],
-    randomWindows: [{ start: '12:00', end: '14:00', count: 1 }],
+    randomWindows: [{ start: '09:00', end: '19:00', count: 2 }],
 };
 
 // ── Heuristic metadata ─────────────────────────────────────────────────────────
@@ -631,8 +632,9 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                         </Typography>
                         {/* Task 6.4: timezone display */}
                         <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
-                            🕐 Timezone: <strong>Asia/Jerusalem</strong> (Israel Standard Time / Israel Daylight Time).
-                            All times above are interpreted in this timezone.
+                            🕐 Time zone: <strong>{engineConfig?.timing?.timezone ?? 'Europe/London'}</strong> (UK time; the study's
+                            participants are in Britain). All times above are in this time zone. Study window:{' '}
+                            <strong>09:00–19:00, 2 notifications</strong>.
                         </Typography>
                         {!isScheduleValid && (
                             <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>

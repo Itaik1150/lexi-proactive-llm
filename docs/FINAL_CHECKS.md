@@ -17,10 +17,11 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
-| B1 | Every proactive experiment is set to **Random window, 2 per user** | dashboard; Claude reads `experimentFeatures.proactiveSettings.schedule` of each experiment | owner sets, Claude verifies | ⬜ |
+| B1 | Every proactive experiment is set to **Random window, 09:00–19:00, 2 per user** (UK time) | dashboard; Claude reads `experimentFeatures.proactiveSettings.schedule` of each experiment. *12 Nov: set on the demo experiment by Claude; the three study experiments do not exist yet* | owner sets, Claude verifies | ⬜ |
 | B2 | Each participant gets their own 2 times per day, inside the window, at least 2 h apart | `notification_plans`: one document per participant per day, times differ between participants, never before the window start | Claude | ⬜ |
 | B3 | The notifications are actually sent at the planned times | `proactive_logs` rows with status `sent` within a minute of each planned time, at most 2 per participant per day | Claude | ⬜ |
 | B4 | A restart in the middle of the day does not lose or double the day's notifications | after a deploy during the window: a plan with `replanned_after_restart: true`, and no participant above 2 that day | Claude | ⬜ |
+| B5 | All clock times are UK time | the scheduler's start-up log prints `Study time zone : Europe/London`; planned times in `notification_plans` are between 09:00 and 19:00; the dashboard shows Europe/London; the Prolific study screens for UK residents | Claude + owner (Prolific) | ⬜ |
 
 ## C. Memory (M1–M3)
 

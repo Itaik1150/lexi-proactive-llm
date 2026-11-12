@@ -10,7 +10,7 @@
 
 export interface ConversationNote {
     summary?: string;
-    conversation_date?: string; // YYYY-MM-DD (UTC date of the newest participant message)
+    conversation_date?: string; // YYYY-MM-DD (study-time date of the newest participant message)
     updated_at?: string;
 }
 
@@ -52,7 +52,15 @@ export const formatDay = (value: Date | string | undefined): string => {
     return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 };
 
-export const todayLine = (now: Date): string => `Today is ${formatDay(now)}.`;
+/** The study's time zone (docs/REVIEW.md I5): participants are in Britain. Same setting as the engine. */
+export const STUDY_TIMEZONE = process.env.STUDY_TIMEZONE || 'Europe/London';
+
+/** The calendar day (YYYY-MM-DD) that `now` falls on in the study's time zone. */
+export const studyDay = (now: Date, timeZone: string = STUDY_TIMEZONE): string =>
+    new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+
+export const todayLine = (now: Date, timeZone: string = STUDY_TIMEZONE): string =>
+    `Today is ${formatDay(studyDay(now, timeZone))}.`;
 
 /**
  * The dated notes of all earlier conversations, oldest first. The note of the conversation that is

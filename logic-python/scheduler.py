@@ -68,7 +68,7 @@ else:
 from bson import ObjectId
 
 from services.research_service import get_research_service
-from services.schedule_utils import FALLBACK_FIRE_TIMES, effective_mode
+from services.schedule_utils import FALLBACK_FIRE_TIMES, STUDY_TIMEZONE, effective_mode
 from utils.mongodb_client import mongodb_client
 
 # ── Hardcoded fallback (used only if MongoDB is unreachable at startup, or no
@@ -256,7 +256,7 @@ def _run_single_user_proactive(user_id: str):
 
 def ai_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, window: dict, count: int):
     """
-    Runs at 00:01 Jerusalem time on each allowed day for experiments using mode='ai_agent'.
+    Runs at 00:01 study time (STUDY_TIMEZONE) on each allowed day for experiments using mode='ai_agent'.
 
     For every eligible user in the experiment:
       1. Calls research_service.plan_ai_schedule() which queries the user's activity
@@ -269,7 +269,7 @@ def ai_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, windo
     The count is the dashboard's "Notifications per user"; research_service enforces it
     as a hard daily maximum, so no separate cap is applied here.
     """
-    tz = ZoneInfo("Asia/Jerusalem")
+    tz = ZoneInfo(STUDY_TIMEZONE)
     now_tz   = datetime.now(tz)
     now_str  = now_tz.strftime("%H:%M:%S")
     window_start = window.get("start", "16:00")
@@ -331,7 +331,7 @@ def random_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, w
     import random as _random
     from services import random_schedule
 
-    tz = ZoneInfo("Asia/Jerusalem")
+    tz = ZoneInfo(STUDY_TIMEZONE)
     now_tz = datetime.now(tz)
     now_minutes = now_tz.hour * 60 + now_tz.minute + 1 if after_restart else None
     rng = _random.SystemRandom()
@@ -369,7 +369,7 @@ def random_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, w
 
 def plan_rest_of_today(scheduler: BlockingScheduler, schedules) -> None:
     """At startup: random-mode experiments get today's remaining times (a restart loses date jobs)."""
-    today = (datetime.now(ZoneInfo("Asia/Jerusalem")).weekday() + 1) % 7  # 0 = Sunday, as in the dashboard
+    today = (datetime.now(ZoneInfo(STUDY_TIMEZONE)).weekday() + 1) % 7  # 0 = Sunday, as in the dashboard
     for sched in schedules:
         if effective_mode(sched["mode"], sched["random_windows"]) != "random":
             continue
@@ -444,11 +444,12 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
 
 
 if __name__ == "__main__":
-    scheduler = BlockingScheduler(timezone="Asia/Jerusalem")
+    scheduler = BlockingScheduler(timezone=STUDY_TIMEZONE)
 
     print("=" * 60)
     print("🗓️  Lexi Proactive Scheduler")
     print(f"   Started : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   Study time zone : {STUDY_TIMEZONE} (now {datetime.now(ZoneInfo(STUDY_TIMEZONE)):%H:%M})")
     print("=" * 60)
 
     # The dashboard shows what the engine really runs (docs/REVIEW.md P9).
@@ -463,7 +464,7 @@ if __name__ == "__main__":
         plan_rest_of_today(scheduler, schedules)
     else:
         print("⚠️  No experiment schedules found — using hardcoded fallback")
-        print(f"   Fire times : {', '.join(FALLBACK_FIRE_TIMES)} (Jerusalem time, all days)")
+        print(f"   Fire times : {', '.join(FALLBACK_FIRE_TIMES)} ({STUDY_TIMEZONE} time, all days)")
         for time_str in FALLBACK_FIRE_TIMES:
             h, m = map(int, time_str.split(":"))
             scheduler.add_job(proactive_job, "cron", hour=h, minute=m, id=f"proactive_fallback_{time_str}")
