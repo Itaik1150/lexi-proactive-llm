@@ -317,6 +317,67 @@ def ai_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, windo
         print(f"❌ ai_daily_planner_job: {e}")
 
 
+def random_daily_planner_job(scheduler: BlockingScheduler, experiment_id: str, windows: list,
+                             after_restart: bool = False):
+    """
+    D20 (option 1): draw today's notification times for every eligible participant of one
+    experiment, independently and at random inside the window(s), at least
+    random_schedule.MIN_GAP_MINUTES apart, and register one job per time.
+
+    after_restart=True (called at startup): only times still ahead today, and no more than the
+    day's total minus what the participant already received.
+    Job ids start with 'rand_timed_' so the hourly reload does not remove them.
+    """
+    import random as _random
+    from services import random_schedule
+
+    tz = ZoneInfo("Asia/Jerusalem")
+    now_tz = datetime.now(tz)
+    now_minutes = now_tz.hour * 60 + now_tz.minute + 1 if after_restart else None
+    rng = _random.SystemRandom()
+    users = _get_experiment_users(experiment_id)
+    print(f"\n🎲 [{now_tz:%H:%M:%S}] Random planner — experiment {experiment_id[:8]}, "
+          f"{len(users)} participant(s){' (rest of today, after a restart)' if after_restart else ''}")
+    rs = get_research_service()
+    plans = []
+    for user in users:
+        user_id = str(user["_id"])
+        sent = (rs._count_sent_today(user_id) or 0) if after_restart else 0
+        times = random_schedule.plan_for_participant(windows, rng, now_minutes, sent)
+        for t_str in times:
+            h, m = map(int, t_str.split(":"))
+            run_dt = now_tz.replace(hour=h, minute=m, second=0, microsecond=0)
+            if run_dt <= now_tz:
+                continue
+            scheduler.add_job(
+                lambda uid=user_id: _run_single_user_proactive(uid),
+                "date", run_date=run_dt,
+                id=f"rand_timed_{experiment_id}_{user_id}_{t_str.replace(':', '')}",
+                replace_existing=True,
+            )
+        plans.append(random_schedule.plan_document(experiment_id, user_id, now_tz, times, after_restart))
+        print(f"   ✅ [{user.get('username', user_id[:8])}] → {', '.join(times) or 'nothing left today'}")
+    if plans:
+        try:
+            if mongodb_client.connect():
+                mongodb_client.db["notification_plans"].insert_many(plans)
+        except Exception as e:
+            print(f"⚠️  Random planner: could not store the plans: {e}")
+        finally:
+            mongodb_client.disconnect()
+
+
+def plan_rest_of_today(scheduler: BlockingScheduler, schedules) -> None:
+    """At startup: random-mode experiments get today's remaining times (a restart loses date jobs)."""
+    today = (datetime.now(ZoneInfo("Asia/Jerusalem")).weekday() + 1) % 7  # 0 = Sunday, as in the dashboard
+    for sched in schedules:
+        if effective_mode(sched["mode"], sched["random_windows"]) != "random":
+            continue
+        if today not in (sched["allowed_days"] or []):
+            continue
+        random_daily_planner_job(scheduler, sched["experiment_id"], sched["random_windows"], after_restart=True)
+
+
 def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
     """
     Register one APScheduler job per (experiment, fire_time) or
@@ -347,32 +408,21 @@ def register_jobs(scheduler: BlockingScheduler, schedules) -> int:
                   f"window={window.get('start')}–{window.get('end')}, count={count}")
 
         elif mode == "random":
-            for w_idx, window in enumerate(sched["random_windows"]):
-                try:
-                    start_h, start_m = map(int, window["start"].split(":"))
-                    end_h, end_m = map(int, window["end"].split(":"))
-                except (KeyError, ValueError):
-                    print(f"⚠️  Skipping malformed random window for experiment {exp_id[:8]}: {window}")
-                    continue
-                window_seconds = max(
-                    0, (end_h * 3600 + end_m * 60) - (start_h * 3600 + start_m * 60)
-                )
-                # Task 6.4: register `count` separate jobs per window so multiple
-                # notifications can be distributed within the same time range.
-                # Each job uses jitter to fire at a distinct random minute.
-                count = max(1, int(window.get("count") or 1))
-                for n in range(count):
-                    job_id = f"proactive_{exp_id}_rand{w_idx}_{n}"
-                    scheduler.add_job(
-                        proactive_job, "cron", args=[exp_id],
-                        day_of_week=dow, hour=start_h, minute=start_m,
-                        jitter=window_seconds if window_seconds > 0 else None,
-                        id=job_id, replace_existing=True,
-                    )
-                    job_count += 1
-                print(f"   🎲 Registered {count} random job(s) in window "
-                      f"{window['start']}–{window['end']} for experiment {exp_id[:8]} "
-                      f"({dow}), jitter={window_seconds}s")
+            # D20 (option 1): ONE daily planner per experiment draws independent random times for
+            # every participant (services/random_schedule.py). The old per-experiment jitter jobs
+            # sent everyone at the same moment, had no minimum gap, and jitter can fire BEFORE the
+            # window start, so they are gone.
+            windows = sched["random_windows"]
+            job_id = f"proactive_{exp_id}_random_planner"
+            scheduler.add_job(
+                lambda s=scheduler, eid=exp_id, w=windows: random_daily_planner_job(s, eid, w),
+                "cron",
+                day_of_week=dow, hour=0, minute=1,
+                id=job_id, replace_existing=True,
+            )
+            job_count += 1
+            print(f"   🎲 Random planner [{job_id}]: daily 00:01 ({dow}), windows="
+                  + ", ".join(f"{w.get('start')}–{w.get('end')}×{w.get('count') or 1}" for w in windows))
         else:
             # Task 6.4: no cap on exact fire times (previously capped at 3)
             for time_str in sched["fire_times"]:
@@ -406,6 +456,7 @@ if __name__ == "__main__":
     if schedules:
         print(f"📡 Loaded schedule(s) from MongoDB for {len(schedules)} enabled experiment(s)")
         registered = register_jobs(scheduler, schedules)
+        plan_rest_of_today(scheduler, schedules)
     else:
         print("⚠️  No experiment schedules found — using hardcoded fallback")
         print(f"   Fire times : {', '.join(FALLBACK_FIRE_TIMES)} (Jerusalem time, all days)")

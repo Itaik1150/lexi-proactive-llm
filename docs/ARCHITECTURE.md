@@ -96,7 +96,7 @@ Detection is character-based: > 15 % Hebrew letters ⇒ Hebrew, otherwise Englis
 | `mode` | Behaviour |
 |---|---|
 | `exact` | one cron job per `fireTimes` entry on the allowed weekdays |
-| `random` | per window `{start,end,count}`: `count` cron jobs at `start` with jitter up to the window length |
+| `random` | **the study's mode (D20)**: a planner at 00:01 draws, per participant and independently, `count` random times inside each window `{start,end,count}`, at least 120 min apart, and registers one job per time (`services/random_schedule.py`); at startup it re-plans the rest of today; plans are stored in `notification_plans` |
 | `ai_agent` | at 00:01 a planner asks the LLM, per user, for `count` times inside `randomWindows[0]`, based on the user's activity hours, past sends and upcoming events; registers one-off jobs |
 
 **Notifications per participant per day** is whatever the schedule says, and it is enforced as a hard maximum

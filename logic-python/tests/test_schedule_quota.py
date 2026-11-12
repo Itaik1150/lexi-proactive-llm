@@ -65,10 +65,18 @@ class SchedulerMatchesQuota(unittest.TestCase):
         s, count = self._register(mode="exact", fire_times=times)
         self.assertEqual(count, daily_quota("exact", times, []))
 
-    def test_random_registers_one_job_per_notification(self):
+    def test_random_registers_one_daily_planner(self):
+        """D20: the per-participant times are drawn by the planner (tests/test_random_schedule.py)."""
         windows = [W(count=2), W("16:00", "18:00", 3)]
         s, count = self._register(mode="random", random_windows=windows)
-        self.assertEqual(count, daily_quota("random", [], windows))
+        self.assertEqual(count, 1)
+        self.assertEqual([j.id for j in s.get_jobs()], ["proactive_abc123_random_planner"])
+
+    def test_the_planner_draws_as_many_times_per_participant_as_the_quota(self):
+        import random
+        from services.random_schedule import plan_for_participant
+        windows = [W(count=2), W("16:00", "18:00", 3)]
+        self.assertEqual(len(plan_for_participant(windows, random.Random(0))), daily_quota("random", [], windows))
 
     def test_every_job_is_scoped_to_its_experiment(self):
         s, _ = self._register(mode="exact", fire_times=["09:00", "13:00"])
