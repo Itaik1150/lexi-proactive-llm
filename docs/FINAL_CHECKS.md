@@ -64,6 +64,18 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | G5 | Tapping a notification is recorded | tap one on the phone; its `proactive_logs` row has `tapped_at` within seconds of the tap | owner + Claude | ⬜ |
 | G6 | English only | a test account stored as Hebrew still gets English notifications | Claude | ⬜ |
 
+## H. Prolific and questionnaires (P1, P2, P5)
+
+| # | Check | How | Who | Status |
+|---|---|---|---|---|
+| H1 | The study link assigns conditions at random and evenly | open `/join/study?e=...` with several test Prolific ids; `prolific_joins` shows the three experiments filling evenly | Claude | ⬜ |
+| H2 | The same participant always gets the same condition | open the link twice with the same test id, also from another network | Claude | ⬜ |
+| H3 | The account is linked to the Prolific id automatically | open the link on the phone with a test id, install, register; `users.prolific.pid` is that id, `linkedBy: auto` | owner + Claude | ⬜ |
+| H4 | When it cannot be linked, the app asks for the id and refuses a wrong one | register on another network (Wi-Fi off); the "Your Prolific ID" window appears; a short or already-used id is refused | owner | ⬜ |
+| H5 | The short survey appears after every finished conversation, in all three conditions, and is stored | finish a conversation in each condition; `metadata_conversations.postConversation` holds the answers | owner + Claude | ⬜ |
+| H6 | Prolific's rules allow installing the app from the study's own link | read Prolific's current policy on software downloads; say it clearly in the study description | owner | ⬜ |
+| H7 | Prolific filters: UK residents, Android phone | the study's audience settings | owner | ⬜ |
+
 ## F. Protocol
 
 | # | Check | How | Who | Status |
