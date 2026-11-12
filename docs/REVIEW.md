@@ -45,7 +45,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 
 ## Sprint plan — from here to a deployable study app
 
-*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** The protocol is kept privately (git-ignored, the repository is public): `docs/private/Proactive_Lexi_Experiment_Protocol_draft-2026-10-25.pdf` and the editable LaTeX source `docs/private/protocol/protocol.tex`, which is edited as the work below is decided, so that it can be pasted into Overleaf for submission. Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
+*Written 26 Oct 2026 from the protocol draft "Lexi Takes the Lead" (25 Oct) and the owner's decisions of 26 Oct. **Goal of the sprint: the app is ready for deployment and the 14-day field study can start.** The protocol is kept privately (git-ignored, the repository is public): the LaTeX source is a Git clone of the Overleaf project at `docs/private/overleaf/main.tex` (since 12 Nov): it is edited as the work below is decided and pushed to Overleaf only on the owner's request; older copies are in `docs/private/old/`. Owner = Itai; Claude = code and analysis. ⬜ open · 🟡 in progress/needs the owner · ✅ done.*
 
 ### Decisions made (26 Oct)
 
@@ -162,7 +162,7 @@ Both kinds are built **after every conversation, for every participant of every 
 | ID | Task | Who | Status |
 |---|---|---|---|
 | X1 | **Ethics approval** — start now (long lead time); it needs the notification design and the data-donation decision | owner | ⬜ |
-| X2 | **Protocol, pass 1 (now)**: close the open points — required interaction frequency and minimum conversation length for a valid session (≥ 6 sessions/week), statistical models and power, Results/Discussion text. Edit `docs/private/protocol/protocol.tex` | owner (+ Claude on request) | ⬜ |
+| X2 | **Protocol, pass 1 (now)**: close the open points — required interaction frequency and minimum conversation length for a valid session (≥ 6 sessions/week), statistical models and power, Results/Discussion text. Edit `docs/private/overleaf/main.tex` (pushed to Overleaf) | owner (+ Claude on request) | ⬜ |
 | X3 | **Protocol, pass 2 (after the prompts of M6 are decided and implemented)**: Appendix A with the exact prompts exported from the code (persona, per-conversation summary, memory extraction with score, Affective notification, Standard notification, fallback, disclosure scoring), and the fallback rule (D3). Edit the same `.tex` | Claude exports, owner writes | ⬜ |
 | X4 | Prolific pilot (a few participants), then launch | owner | ⬜ |
 
