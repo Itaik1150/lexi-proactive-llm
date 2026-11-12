@@ -191,7 +191,7 @@ class ProactiveLogic:
         self,
         intent_text: str,
         recent_messages: List[str],
-        language: str = "he",
+        language: str = "en",
     ) -> Dict[str, Any]:
         """
         Phase 4.5: Determine if a user's recent messages indicate they followed

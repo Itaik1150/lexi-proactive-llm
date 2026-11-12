@@ -84,7 +84,7 @@ class TemporalHeuristic(BaseHeuristic):
     _LEAD_TIME_MIN_HOURS: float = 6
     _LEAD_TIME_MAX_HOURS: float = 24
 
-    def __init__(self, user, llm_service, mongodb_client, prompts_from_db=None, default_language="he"):
+    def __init__(self, user, llm_service, mongodb_client, prompts_from_db=None, default_language="en"):
         super().__init__(user, llm_service, mongodb_client, prompts_from_db, default_language)
         self._fired_nudge: Optional[dict] = None  # set in get_proactive_message
 
@@ -277,10 +277,7 @@ class TemporalHeuristic(BaseHeuristic):
             self.used_fallback  = True
             self.memory_content = ""
             prompt = self._COLD_START_PROMPT
-            if self.language == "he":
-                fallback = f"היי {self.name}, יש משהו מעניין שאתה מצפה לו בקרוב?"
-            else:
-                fallback = f"Hi {self.name}, anything exciting coming up soon?"
+            fallback = f"Hi {self.name}, anything exciting coming up soon?"
             return self._cold_start_message(
                 prompt=prompt,
                 static_fallback=fallback,
@@ -314,8 +311,6 @@ class TemporalHeuristic(BaseHeuristic):
             raise ValueError("empty LLM response")
         except Exception as e:
             print(f"⚠️  TemporalHeuristic message LLM ({self.username}): {e}")
-            if self.language == "he":
-                return f"היי {self.name}, האירוע שלך '{n['mention_text']}' מתקרב!"
             return f"Hi {self.name}, your event '{n['mention_text']}' is coming up!"
 
     def clear_after_send(self) -> None:

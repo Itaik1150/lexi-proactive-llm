@@ -314,7 +314,7 @@ class ResearchService:
           llm_model         — str | None
           default_language  — str (Task 6.3)
 
-        Falls back gracefully: reactive=100, schedule=all-days, lang="he"
+        Falls back gracefully: reactive=100, schedule=all-days, lang="en"
         if the experiment doc is missing or cannot be read.
         """
         _DEFAULT_WEIGHTS  = {
@@ -419,7 +419,7 @@ class ResearchService:
         selected: str,
         user: dict,
         heuristic_prompts: dict,
-        default_language: str = "he",
+        default_language: str = "en",
     ) -> tuple:
         """
         Instantiate the selected heuristic class, call get_proactive_message(),

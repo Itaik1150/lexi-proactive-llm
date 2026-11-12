@@ -297,10 +297,7 @@ class BehaviouralGapHeuristic(BaseHeuristic):
             self.used_fallback  = True
             self.memory_content = ""
             prompt = self._COLD_START_PROMPT
-            if self.language == "he":
-                fallback = f"היי {self.name}, איך מתקדם עם התוכניות שלך?"
-            else:
-                fallback = f"Hi {self.name}, how have you been doing with your plans lately?"
+            fallback = f"Hi {self.name}, how have you been doing with your plans lately?"
             return self._cold_start_message(
                 prompt=prompt,
                 static_fallback=fallback,
@@ -312,10 +309,7 @@ class BehaviouralGapHeuristic(BaseHeuristic):
             self.used_fallback  = True
             self.memory_content = ""
             prompt = self._COLD_START_PROMPT
-            if self.language == "he":
-                fallback = f"היי {self.name}, איך מתקדם עם התוכניות שלך?"
-            else:
-                fallback = f"Hi {self.name}, how have you been doing with your plans lately?"
+            fallback = f"Hi {self.name}, how have you been doing with your plans lately?"
             return self._cold_start_message(
                 prompt=prompt,
                 static_fallback=fallback,
@@ -345,8 +339,6 @@ class BehaviouralGapHeuristic(BaseHeuristic):
             raise ValueError("empty LLM response")
         except Exception as e:
             print(f"⚠️  BehaviouralGapHeuristic message LLM ({self.username}): {e}")
-            if self.language == "he":
-                return f"היי {self.name}, האם בסוף {intent_text}?"
             return f"Hi {self.name}, did you end up {intent_text}?"
 
     def clear_after_send(self) -> None:
