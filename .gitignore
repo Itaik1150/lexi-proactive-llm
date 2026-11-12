@@ -521,3 +521,6 @@ docs/_build/
 
 # slides export for Overleaf (not part of the code)
 lexi-slides-overleaf.zip
+
+# local database clean-up script (can delete data; kept out of the repository)
+Lexi/server/clean_db.ts
