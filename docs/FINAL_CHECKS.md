@@ -21,7 +21,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | B2 | Each participant gets their own 2 times per day, inside the window, at least 2 h apart | `notification_plans`: one document per participant per day, times differ between participants, never before the window start | Claude | ⬜ |
 | B3 | The notifications are actually sent at the planned times | `proactive_logs` rows with status `sent` within a minute of each planned time, at most 2 per participant per day | Claude | ⬜ |
 | B4 | A restart in the middle of the day does not lose or double the day's notifications | after a deploy during the window: a plan with `replanned_after_restart: true`, and no participant above 2 that day | Claude | ⬜ |
-| B5 | All clock times are UK time | the scheduler's start-up log prints `Study time zone : Europe/London`; planned times in `notification_plans` are between 09:00 and 19:00; the dashboard shows Europe/London; the Prolific study screens for UK residents | Claude + owner (Prolific) | ⬜ |
+| B5 | All clock times are UK time | the scheduler's start-up log prints `Study time zone : Europe/London`; planned times in `notification_plans` are between 09:00 and 19:00; the dashboard shows Europe/London; the Prolific study screens for UK residents *12 Nov: after the deploy the engine reported `Europe/London`, and the first plan was drawn inside the window (14:47 and 16:48 UK time, 2 h 1 min apart, marked as re-planned after a restart).* Still to do: the Prolific filter | Claude + owner (Prolific) | 🟡 |
 
 ## C. Memory (M1–M3)
 
