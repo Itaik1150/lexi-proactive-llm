@@ -3,7 +3,8 @@ Structure of one `proactive_logs` document. One document is written for EVERY at
 notify a participant, not only for successful sends, so the analysis has real denominators.
 See docs/DATA_AND_ANALYSIS.md for how to query it.
 
-The Node API later adds two timestamps to rows with status "sent" (funnel):
+The Node API later adds three timestamps to rows with status "sent" (funnel):
+  tapped_at       the participant tapped the notification (reported by the Android app)
   opened_at       first time the participant's app fetched the notification's conversation
   first_reply_at  first message the participant wrote in that conversation
 """

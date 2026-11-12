@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 /**
  * Funnel stamps on `proactive_logs` rows (written by the Python engine, one per notification attempt).
  * For a row with status "sent" and a conversation_id:
+ *   tapped_at       the participant tapped the notification itself (reported by the Android app;
+ *                   response latency = tapped_at - timestamp)
  *   opened_at       first time the participant's app fetched that conversation
  *   first_reply_at  first message the participant wrote in it
  * Each stamp is set once (the first time wins). These calls are best-effort: they never throw,
@@ -15,7 +17,7 @@ const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
 export const createProactiveLogsService = (
     getCollection: () => LogsCollection = () => mongoose.connection.db.collection('proactive_logs'),
 ) => {
-    const stamp = async (conversationId: unknown, field: 'opened_at' | 'first_reply_at'): Promise<void> => {
+    const stamp = async (conversationId: unknown, field: 'tapped_at' | 'opened_at' | 'first_reply_at'): Promise<void> => {
         if (typeof conversationId !== 'string' || !OBJECT_ID_PATTERN.test(conversationId)) return;
         try {
             await getCollection().updateOne(
@@ -28,6 +30,7 @@ export const createProactiveLogsService = (
     };
 
     return {
+        markTapped: (conversationId: unknown) => stamp(conversationId, 'tapped_at'),
         markOpened: (conversationId: unknown) => stamp(conversationId, 'opened_at'),
         // Replying implies the conversation was opened, even if that fetch was missed.
         markReplied: async (conversationId: unknown) => {

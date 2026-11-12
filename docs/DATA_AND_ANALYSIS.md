@@ -52,10 +52,14 @@ That gives you real denominators: how often participants were reached, skipped, 
 | `llm_model_used` | string | the model the engine actually called | the trustworthy one |
 | `daily_quota` | int \| null | notifications per day the schedule allows for this participant | |
 | `sent_today_before` | int \| null | how many had already been sent that day (Jerusalem time) | |
+| `message_source` | string | `event` (written about a stored event), `summary` (written from recent notes), `pool` (fixed message) | None when no message was generated |
+| `memory_id`, `memory_age_days`, `llm_attempts` | string, int, int | the event used and how many days after it was shared; model calls needed (2 = the first answer was over 20 words) | `memory_id` only for `event` |
+| `tapped_at` | datetime | **added later by the API** on `sent` rows: the participant tapped the notification itself (reported once by the Android app). **Response latency = `tapped_at` − `timestamp`** | absent if the participant opened the app another way |
 | `opened_at` | datetime | **added later by the API** on `sent` rows: first time the app fetched the conversation | see below |
 | `first_reply_at` | datetime | **added later by the API**: first message the participant wrote in it | |
 
 ### What the funnel timestamps mean
+- `tapped_at` is set only when the Android app reports that it was opened by tapping that notification (a one-time flag in the app), so it is the precise measure for response latency; `opened_at` is broader.
 - `opened_at` is the first time *any client* requested that conversation from the API. For the participant it is the notification tap (or opening the app onto it). It would also be set by a researcher viewing the conversation, or by a page reload.
 - `first_reply_at` is the first message with role `user` in it. A reply also sets `opened_at` if the fetch was missed.
 - Both are set once (first time wins), only on `sent` rows. Absent means "did not happen (yet)".

@@ -146,6 +146,12 @@ class ConvesationsController {
         res.status(200).send();
     });
 
+    // P7: the Android app reports that this conversation was opened by tapping its notification.
+    notificationTapped = requestHandler(async (req: Request, res: Response) => {
+        proactiveLogsService.markTapped(req.body?.conversationId).catch(() => {});
+        res.status(200).send();
+    });
+
     finishConversation = requestHandler(async (req: Request, res: Response) => {
         const { conversationId, experimentId, isAdmin } = req.body;
 

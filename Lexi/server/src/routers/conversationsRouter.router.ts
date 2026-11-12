@@ -10,6 +10,7 @@ export const conversationsRouter = () => {
     router.put('/metadata', convesationsController.updateConversationMetadata);
     router.put('/annotation', convesationsController.updateUserAnnotation);
     router.post('/finish', convesationsController.finishConversation);
+    router.post('/notification-tapped', convesationsController.notificationTapped);
 
     return router;
 };

@@ -1,4 +1,4 @@
-import { getConversation, updateUserAnnotation } from '@DAL/server-requests/conversations';
+import { getConversation, reportNotificationTapped, updateUserAnnotation } from '@DAL/server-requests/conversations';
 import FinishConversationDialog from '@components/common/FinishConversationDialog';
 import LoadingPage from '@components/common/LoadingPage';
 import { SnackbarStatus, useSnackbar } from '@contexts/SnackbarProvider';
@@ -62,6 +62,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ isFinishDialogOpen, setIsFinishDial
         if (window.Android?.wasOpenedFromNotification) {
             try {
                 cameFromNotification = window.Android.wasOpenedFromNotification();
+                // P7: the app's one-time flag is the only reliable sign of a real tap; log when it happened.
+                if (cameFromNotification) reportNotificationTapped(conversationId);
                 console.log('[ChatPage] Android bridge reports notification:', cameFromNotification);
             } catch (err) {
                 console.warn('[ChatPage] Error checking Android notification flag:', err);

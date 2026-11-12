@@ -50,3 +50,21 @@ test('a database failure is swallowed and never breaks the chat', async () => {
     await assert.doesNotReject(svc.markOpened(CONV));
     await assert.doesNotReject(svc.markReplied(CONV));
 });
+
+test('markTapped sets tapped_at once, only on the sent row of that conversation (P7)', async () => {
+    const col = fakeCollection();
+    await createProactiveLogsService(() => col).markTapped(CONV);
+    assert.equal(col.calls.length, 1);
+    const { filter, update } = col.calls[0];
+    assert.equal(filter.conversation_id, CONV);
+    assert.equal(filter.status, 'sent');
+    assert.deepEqual(filter.tapped_at, { $exists: false }, 'first tap wins');
+    assert.ok(update.$set.tapped_at instanceof Date);
+});
+
+test('markTapped ignores ids that are not ObjectIds and never throws', async () => {
+    const col = fakeCollection();
+    const svc = createProactiveLogsService(() => col);
+    for (const bad of [undefined, null, '', { $ne: '' }, '<script>']) await svc.markTapped(bad);
+    assert.equal(col.calls.length, 0);
+});

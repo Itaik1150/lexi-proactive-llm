@@ -84,6 +84,15 @@ export const createConversation = async (
     }
 };
 
+/** P7: tells the server that this conversation was opened by tapping its notification. Never throws. */
+export const reportNotificationTapped = async (conversationId: string): Promise<void> => {
+    try {
+        await axiosInstance.post(`/${ApiPaths.CONVERSATIONS_PATH}/notification-tapped`, { conversationId });
+    } catch (error) {
+        console.warn('[notification] could not report the tap', error);
+    }
+};
+
 export const getConversation = async (conversationId: string): Promise<MessageType[]> => {
     try {
         const response = await axiosInstance.get(
