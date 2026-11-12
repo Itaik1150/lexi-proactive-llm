@@ -34,6 +34,13 @@ class ExperimentsController {
         res.status(200).json(info);
     });
 
+    // What the Python engine really runs (prompts, pools, rules), published by the engine at start-up.
+    // Read-only for the dashboard (docs/REVIEW.md P9); admin only.
+    getEngineConfig = requestHandler(async (req: Request, res: Response) => {
+        const doc = await mongoose.connection.db.collection('system_config').findOne({ _id: 'engine' as any });
+        res.status(200).json(doc || null);
+    });
+
     getExperimentContent = requestHandler(async (req: Request, res: Response) => {
         const experimentId = req.params.id as string;
         const experiment = await experimentsService.getExperiment(experimentId);

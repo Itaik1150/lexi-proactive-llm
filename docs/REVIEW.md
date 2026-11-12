@@ -37,7 +37,7 @@ Fixes are done one at a time, each in its own commit. **✅ done · 🟡 needs y
 | S6 | Android: backup, cleartext, lock screen, token logs | 🟡 | **device-tested 25 Oct:** backup off, lock-screen text hidden when the app draws the notification. Notifications Android draws itself (app closed or in the background) still show the full text (see V10 note, item 5). Still open: a signed release build and minification (need your keystore) |
 | R5 | Four overlapping opener-reset paths; a race could replace a fresh opener or blank the greeting | ✅ | one atomic reset; the two dormant paths removed; engine verifies the conversation really starts with the opener |
 | V9 | Join link can assign the wrong experiment | 🟡 | server fix deployed; **device-tested 25 Oct** (Samsung, Android 16): Open Lexi link and button, confirmation screen, invalid link, manual paste fallback. Remaining: the weaknesses listed under V9 (sideloaded installs give no referrer; the address match is a convenience) |
-| S12 | `GET /experiments/:id` returns the whole experiment (prompts, settings) to anyone, no login | ⬜ | new finding; see §2 |
+| S12 | `GET /experiments/:id` returns the whole experiment (prompts, settings) to anyone, no login | ✅ | admin-only gate on all admin routes (also closes S9); the open features route returns two flags only; tests in `security.test.ts` |
 | V5 V7 V10–V13 | Fidelity, context asymmetry, LLM confounds, timezone | ⬜ | |
 | R1–R4 R9 S11 | Scheduler per experiment, worker + heartbeat, single Mongo client, tests, deps | ⬜ | |
 
@@ -118,9 +118,9 @@ Both kinds are built **after every conversation, for every participant of every 
 | I1 | Upgrade Render to the always-on plan; confirm heartbeat every 30 min (R2a) | owner, then Claude checks logs | ⬜ |
 | I2 | Restart-safe scheduler: **partly done with D20** (random times for the rest of today are re-planned at startup); still open: `misfire_grace_time`, heartbeat in the database | Claude | 🟡 |
 | I3 | Signed **release** APK (keystore, `versionCode` bump, join page serves it) | owner (keystore) + Claude | ⬜ |
-| I4 | **English only (D8)**: remove Hebrew templates and Hebrew-letter language detection; `defaultLanguage = en` as the model default; one language path in the prompts | Claude | ⬜ |
+| I4 | **English only (D8), done**: the language is fixed to English in the engine (stored `he` values and the experiment default are ignored), Hebrew-letter detection and all Hebrew texts are removed, the experiment default is `en`. A test fails if Hebrew text appears anywhere in the code | Claude | ✅ |
 | I5 | Time zones: screen Prolific by time zone, or store the participant's time zone and schedule in it | decision + Claude | ⬜ |
-| I6 | Close S12 (experiment endpoints that expose prompts and settings) | Claude | ⬜ |
+| I6 | **Admin-only gate (S9, S12), done**: every route that reads the full experiment or changes anything (experiments, agents, forms, **data export**, agent sync) now needs an admin login (401 without a login, 403 for a participant). The open `/experiments/:id/features` returns only the two flags a participant's browser needs, never the proactive settings. Still open (new, S13): the conversation routes identify a conversation only by its id (hard to guess, but no login check) | Claude | ✅ |
 
 ### Phase 2 — Memory and notification logic (core)
 
@@ -138,20 +138,20 @@ Both kinds are built **after every conversation, for every participant of every 
 
 | ID | Task | Who | Status |
 |---|---|---|---|
-| P1 | **Randomisation across the three experiments (D7)**: no code needed, but participants must not choose or drift into a group. Either one Prolific screener, then **you randomise the Prolific ids into three lists** and run three studies with custom allowlists, or a **single randomising join link** (small code: balanced counter, n = 20 each). Also check that the three experiments are **identical except the proactive settings** (persona, model, prompts) | owner decision + Claude (config check, optional link) | ⬜ |
-| P2 | **Questionnaires**: owner supplies Qualtrics bi-weekly items and IMS WEALTH; Claude integrates (links carrying the participant's id, when shown, a record of completion) | owner → Claude | ⬜ |
+| P1 | **Randomisation across the three experiments (D7)** and the check that the three experiments are identical except their proactive settings: **moved to the end** (owner, 12 Nov), after the three experiments are created; see `docs/FINAL_CHECKS.md` E1 | owner + Claude | ⬜ |
+| P2 | **Questionnaires, twice a week on Qualtrics** (owner, 12 Nov; "IMS WEALTH" removed). A proposal based on Guy Laban's published instruments is in `docs/private/QUESTIONNAIRES.md`: baseline once (Distress Disclosure Index, trait reactance, privacy concern, loneliness, stress), twice a week (subjective self-disclosure 10 items, agency/experience sliders, interaction quality, friendliness, perceived surveillance, threat to freedom, autonomy), end (engagement, comforting responses, trust, intrusiveness). **To confirm with the supervisors**, then: build in Qualtrics (owner), links carrying the participant's id and a record of completion (Claude), text in the protocol | owner → Claude | 🟡 |
 | P4 | Make the **like/dislike micro-feedback** work again and label "opened from a notification" reliably (V8) — **only if it is kept** (Phase 6) | Claude | ⬜ |
 | P5 | **Prolific integration**: capture Prolific id, study id and session id at join; completion code/redirect; per-participant **compliance view** (notifications answered, sessions per week, questionnaires done) | owner (Prolific study) + Claude | ⬜ |
 | P6 | **Finish button**: moved on mobile from the top-left of the top bar to the row above the message box (left of the font-size switch); the Android chat screen now respects the system bars, camera cutout and keyboard (`safeDrawing` insets). The cause was edge-to-edge drawing on Android 15+ (`targetSdk 36`). Client typecheck and Android compile pass; Checked on the phone (26 Oct): logo clear of the status bar, Finish reachable and its dialog works, keyboard handled. Also fixed the same day: the keyboard now stays open after sending, and on mobile Enter adds a new line (only the send button sends) | Claude | ✅ |
-| P7 | Explicit "notification tapped" event with timestamp (latency, 60-min conversion) | Claude | ⬜ |
+| P7 | **Notification tapped, done**: the Android app's one-time "opened by tapping a notification" flag is reported by the chat page, and the API stamps `tapped_at` on that notification's log row. Response latency = `tapped_at` − `timestamp`. No new APK needed | Claude | ✅ |
 | P8 | Consent page and demographic registration verified end to end. **Found 26 Oct:** the consent text in `TermsOfConditions.tsx` is still the upstream Cambridge study (chatbot "Sam", EPSRC, month-long, "Talking with a Chatbot about emotional experiences"); it must be replaced by the BGU study text approved by ethics (X1) | owner + Claude | ⬜ |
-| P9 | **Dashboard mirrors the real configuration (D28)**: today some of it lives only in code, and some dashboard fields are ignored (the Affective memory prompt). Show, read-only or editable where safe: the persona and the model settings, the memory prompt and its settings (30 min, 5 events, model), the notification prompts, the message pools, the active heuristics (from the registry, D27), the timing rule, the two-a-day cap, and per participant the stored notes and events with their scores and reasons. One source of truth: either the code reads what the dashboard shows, or the dashboard reads the code, never two copies | owner + Claude | ⬜ |
+| P9 | **Dashboard mirrors what runs (D28), done for the settings**: at start-up the engine publishes its real configuration (prompts, pools, memory model and rules, timing rule, active heuristics) to `system_config`, and the proactive-settings window shows it read-only (`GET /experiments/engine-config`, admin only). The prompt editors, which the engine ignored, are gone; only the two active behaviours are offered (Standard, Affective); the schedule and model texts say what is used for the study. **Not built**: a per-participant view of the stored notes and events | Claude | 🟡 |
 
 ### Phase 4 — Verification and hardening
 
 | ID | Task | Who | Status |
 |---|---|---|---|
-| H1 | Data-only pushes so the lock-screen text is hidden also when the app is closed | Claude | ⬜ |
+| ~~H1~~ | ~~Data-only pushes so the lock-screen text is hidden also when the app is closed~~ **dropped (owner, 12 Nov: not important)** | — | — |
 | H2 | One shared database client, schedule fallback quirks, tests for the engine, dependency updates (R3, R4, R9, S11) | Claude | ⬜ |
 | H3 | LLM/prompt confounds, silent LLM failures, gap-check and time-zone issues (V10–V13) | Claude | ⬜ |
 | H4 | **Dress rehearsal**: 3–5 internal participants, one per condition, 3–4 days, checking every logged measure end to end | owner + Claude | ⬜ |

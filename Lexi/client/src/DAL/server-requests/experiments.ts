@@ -115,6 +115,16 @@ export const getExperiment = async (experimentId: string): Promise<ExperimentTyp
     }
 };
 
+/** What the engine really runs (prompts, pools, rules); null if the engine has not published it yet. */
+export const getEngineConfig = async (): Promise<any | null> => {
+    try {
+        const response = await axiosInstance.get(`/${ApiPaths.EXPERIMENTS_PATH}/engine-config`);
+        return response.data;
+    } catch (error) {
+        return null;
+    }
+};
+
 export const deleteExperiment = async (experimentId: string): Promise<void> => {
     try {
         await axiosInstance.delete(`/${ApiPaths.EXPERIMENTS_PATH}/${experimentId}`);

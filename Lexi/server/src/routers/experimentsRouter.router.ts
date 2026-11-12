@@ -9,6 +9,7 @@ export const experimentsRouter = () => {
     router.get('/', requireAdmin, experimentsController.getExperiments);
     router.get('/agent', requireAdmin, experimentsController.getAllExperimentsByAgentId);
     router.get('/match-session', experimentsController.matchSession);
+    router.get('/engine-config', requireAdmin, experimentsController.getEngineConfig);
     router.get('/:id', requireAdmin, experimentsController.getExperiment);
     router.get('/:id/public', experimentsController.getExperimentPublicInfo);
     router.get('/:id/features', experimentsController.getExperimentFeatures);

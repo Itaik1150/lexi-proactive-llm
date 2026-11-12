@@ -451,6 +451,10 @@ if __name__ == "__main__":
     print(f"   Started : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
+    # The dashboard shows what the engine really runs (docs/REVIEW.md P9).
+    from services import engine_config
+    engine_config.publish(mongodb_client)
+
     schedules = load_schedules_from_db()
 
     if schedules:

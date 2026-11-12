@@ -24,9 +24,8 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { SnackbarStatus, useSnackbar } from '@contexts/SnackbarProvider';
-import { updateExperiment } from '@DAL/server-requests/experiments';
+import { getEngineConfig, updateExperiment } from '@DAL/server-requests/experiments';
 import {
     ExperimentType,
     HeuristicWeights,
@@ -65,10 +64,10 @@ interface HeuristicMeta {
 
 const HEURISTICS: Record<HeuristicKey, HeuristicMeta> = {
     affective: {
-        label: 'Affective',
+        label: 'Affective Proactive',
         description:
-            'Scans the user\'s recent conversations for emotional content (stress, sadness, joy). ' +
-            'When emotional expressions are found, sends a warm, personalised check-in referencing what the user shared.',
+            'A warm, personal notification written by the model about something the participant shared ' +
+            '(an event, or their recent days). Falls back to a fixed warm message when there is nothing to refer to yet.',
         hasMemoryPrompt: true,
         defaultMemoryPrompt:
             'You analyze conversation messages for deep emotional content.\n' +
@@ -125,10 +124,10 @@ const HEURISTICS: Record<HeuristicKey, HeuristicMeta> = {
             'You MAY use the user\'s name once.',
     },
     generic: {
-        label: 'Generic',
+        label: 'Standard Proactive (neutral)',
         description:
-            'Sends a simple, friendly invitation to chat — no emotional framing, no specific topic. ' +
-            'Used as a control condition or baseline.',
+            'A neutral invitation drawn from a fixed pool of hand-written messages. ' +
+            'No language model, no name, no memory.',
         hasMemoryPrompt: false,
         defaultMemoryPrompt: '',
         defaultMessagePrompt:
@@ -138,7 +137,9 @@ const HEURISTICS: Record<HeuristicKey, HeuristicMeta> = {
     },
 };
 
-const HEURISTIC_KEYS: HeuristicKey[] = ['generic', 'temporal', 'behaviouralGap', 'affective'];
+// Only the heuristics that are ACTIVE in the engine are offered (logic-python/heuristics/registry.py).
+// Temporal and Behavioural-gap stay in the code but are dormant, so they are not shown.
+const HEURISTIC_KEYS: HeuristicKey[] = ['generic', 'affective'];
 
 // ── Component state types ──────────────────────────────────────────────────────
 interface HeuristicRowState {
@@ -180,6 +181,30 @@ const initConfigs = (
         return acc;
     }, {} as HeuristicConfigs);
 
+// ── Read-only text block (what the engine really runs) ────────────────────────
+const ReadOnlyBlock: React.FC<{ title: string; text?: string }> = ({ title, text }) => (
+    <Box>
+        <Typography variant="body2" fontWeight={600} gutterBottom>
+            {title}
+        </Typography>
+        <Box
+            sx={{
+                p: 1.5,
+                borderRadius: 1.5,
+                border: '1px dashed',
+                borderColor: 'divider',
+                backgroundColor: 'background.paper',
+                whiteSpace: 'pre-wrap',
+                fontSize: '0.85rem',
+                maxHeight: 260,
+                overflow: 'auto',
+            }}
+        >
+            {text || '—'}
+        </Box>
+    </Box>
+);
+
 // ── Props ──────────────────────────────────────────────────────────────────────
 interface ProactiveSettingsModalProps {
     open:       boolean;
@@ -201,10 +226,16 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
     const [configs,               setConfigs]               = useState<HeuristicConfigs>(buildDefaultConfigs);
     const [schedule,              setSchedule]              = useState<ScheduleSettings>(DEFAULT_SCHEDULE);
     const [isLoading,             setIsLoading]             = useState(false);
+    // What the engine really runs, published by the engine itself (read-only here).
+    const [engineConfig,          setEngineConfig]          = useState<any | null>(null);
 
     const serverBase = process.env.REACT_APP_API_URL || 'https://lexi-server-1rx9.onrender.com';
     const deepLink   = `${serverBase}/join/${experiment._id}`;
     const { openSnackbar } = useSnackbar();
+
+    useEffect(() => {
+        if (open) getEngineConfig().then(setEngineConfig);
+    }, [open]);
 
     // ── Sync state when experiment prop changes ────────────────────────────────
     useEffect(() => {
@@ -273,13 +304,6 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
         setConfigs(prev => ({
             ...prev,
             [key]: { ...prev[key], weight: Math.max(0, Math.min(100, value)) },
-        }));
-    };
-
-    const setPrompt = (key: HeuristicKey, field: 'memoryPrompt' | 'messagePrompt', value: string) => {
-        setConfigs(prev => ({
-            ...prev,
-            [key]: { ...prev[key], [field]: value },
         }));
     };
 
@@ -489,7 +513,7 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                 size="small"
                             />
                             <Chip
-                                label="✨ Let Agent Decide"
+                                label="Let Agent Decide (not used in the study)"
                                 clickable={proactiveEnabled}
                                 onClick={() => proactiveEnabled && setScheduleMode('ai_agent')}
                                 color={schedule.mode === 'ai_agent' ? 'secondary' : 'default'}
@@ -602,7 +626,7 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                             {schedule.mode === 'exact'
                                 ? 'The system fires a cycle at each exact time above, on the allowed days only.'
                                 : schedule.mode === 'random'
-                                ? 'The system fires the specified number of notifications at random minutes within this window, on the allowed days only.'
+                                ? `Each participant gets their own random times inside this window, at least ${engineConfig?.timing?.min_gap_minutes ?? 120} minutes apart, drawn every day at 00:01. Use this mode, with 2 notifications, for the study (the same rule for every proactive condition).`
                                 : 'Each day at 00:01 the AI queries each user\'s personal activity history and asks the LLM to pick the optimal notification times within the allowed window. Each user gets individually personalised scheduling. Note: Schedule changes made here take effect on the next daily run.'}
                         </Typography>
                         {/* Task 6.4: timezone display */}
@@ -639,8 +663,10 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                             </Select>
                         </FormControl>
                         <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
-                            This controls which AI model generates all proactive notifications for this experiment.
-                            Changing this affects message quality, cost, and generation style.
+                            This model writes the Affective notifications of this experiment. Standard notifications
+                            come from the fixed pool (no model), memory is always built with{' '}
+                            <strong>{engineConfig?.memory?.model ?? 'GPT-4.1'}</strong>, and the chat model is set in the agent.
+                            Keep the same model in all three experiments of the study.
                             Make sure the corresponding API key is set in the server environment
                             (OPENAI_API_KEY for GPT models, ANTHROPIC_API_KEY for Claude models).
                         </Typography>
@@ -654,9 +680,9 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                             Heuristic Probability Weights
                         </Typography>
                         <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                            Each active heuristic is assigned a probability weight. On every cycle the system
-                            randomly selects one according to those weights. The active weights must sum to
-                            exactly 100%. If all heuristics are turned off, the system enters{' '}
+                            For the study, each experiment is ONE condition: switch on exactly one behaviour with
+                            weight 100% (Standard or Affective), or none for the Reactive condition. The active
+                            weights must sum to exactly 100%. If all heuristics are turned off, the system enters{' '}
                             <strong>Reactive mode</strong> — no notifications will be sent.
                         </Typography>
 
@@ -707,7 +733,7 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                             />
                                         </Box>
 
-                                        {/* Collapsible prompt editor */}
+                                        {/* Read-only: what the engine really sends for this behaviour (P9) */}
                                         {cfg.enabled && (
                                             <Box mt={1.5}>
                                                 <Button
@@ -716,88 +742,32 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                                     endIcon={cfg.promptsOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                                     sx={{ textTransform: 'none', px: 0, color: 'text.secondary' }}
                                                 >
-                                                    Edit LLM Prompts
+                                                    Show what is actually sent
                                                 </Button>
                                                 <Collapse in={cfg.promptsOpen}>
-                                                    <Box
-                                                        display="flex"
-                                                        flexDirection="column"
-                                                        gap={2.5}
-                                                        mt={1.5}
-                                                        pt={2}
-                                                        px={2}
-                                                        pb={2}
-                                                        sx={{
-                                                            borderRadius: 1.5,
-                                                            border: '1px dashed',
-                                                            borderColor: 'primary.light',
-                                                            backgroundColor: 'background.paper',
-                                                        }}
-                                                    >
-                                                        {meta.hasMemoryPrompt && (
-                                                            <Box>
-                                                                <Box display="flex" alignItems="center" gap={0.5} mb={0.75}>
-                                                                    <Typography variant="body2" fontWeight={600}>
-                                                                        Memory Prompt
-                                                                    </Typography>
-                                                                    <Tooltip
-                                                                        title="What to extract from conversations. Write persona/task instructions only — JSON output constraints are added automatically by the system."
-                                                                        placement="right"
-                                                                        arrow
-                                                                    >
-                                                                        <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
-                                                                    </Tooltip>
-                                                                </Box>
-                                                                <TextField
-                                                                    multiline
-                                                                    rows={4}
-                                                                    fullWidth
-                                                                    size="small"
-                                                                    value={cfg.memoryPrompt}
-                                                                    onChange={e => setPrompt(key, 'memoryPrompt', e.target.value)}
-                                                                />
-                                                            </Box>
+                                                    <Box display="flex" flexDirection="column" gap={1.5} mt={1.5}>
+                                                        {!engineConfig ? (
+                                                            <Alert severity="warning">
+                                                                The engine has not published its configuration yet (it does so
+                                                                each time it starts on the server).
+                                                            </Alert>
+                                                        ) : key === 'generic' ? (
+                                                            <>
+                                                                <ReadOnlyBlock title="Rule" text={`${engineConfig.standard_notification?.sources}. ${engineConfig.pool_rule}.`} />
+                                                                <ReadOnlyBlock title={`Fixed pool (${engineConfig.standard_notification?.pool?.length ?? 0} messages)`} text={(engineConfig.standard_notification?.pool ?? []).map((m: string, i: number) => `${i + 1}. ${m}`).join('\n')} />
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <ReadOnlyBlock title="Sources, in this order" text={engineConfig.affective_notification?.sources} />
+                                                                <ReadOnlyBlock title="Prompt when an event is available" text={engineConfig.affective_notification?.event_prompt} />
+                                                                <ReadOnlyBlock title="Prompt when only recent notes are available" text={engineConfig.affective_notification?.summary_prompt} />
+                                                                <ReadOnlyBlock title={`Fixed warm pool (${engineConfig.affective_notification?.pool?.length ?? 0} messages)`} text={(engineConfig.affective_notification?.pool ?? []).map((m: string, i: number) => `${i + 1}. ${m}`).join('\n')} />
+                                                            </>
                                                         )}
-                                                        <Box>
-                                                            <Box display="flex" alignItems="center" gap={0.5} mb={0.75}>
-                                                                <Typography variant="body2" fontWeight={600}>
-                                                                    Message Prompt
-                                                                </Typography>
-                                                                <Tooltip
-                                                                    title="Persona and tone for the notification. Output constraints are added automatically — do not include 'Return ONLY the final message' rules."
-                                                                    placement="right"
-                                                                    arrow
-                                                                >
-                                                                    <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
-                                                                </Tooltip>
-                                                            </Box>
-                                                            <TextField
-                                                                multiline
-                                                                rows={4}
-                                                                fullWidth
-                                                                size="small"
-                                                                value={cfg.messagePrompt}
-                                                                onChange={e => setPrompt(key, 'messagePrompt', e.target.value)}
-                                                            />
-                                                        </Box>
-                                                        <Box>
-                                                            <Button
-                                                                size="small"
-                                                                variant="outlined"
-                                                                color="warning"
-                                                                sx={{ textTransform: 'none' }}
-                                                                onClick={() => setConfigs(prev => ({
-                                                                    ...prev,
-                                                                    [key]: {
-                                                                        ...prev[key],
-                                                                        memoryPrompt:  meta.defaultMemoryPrompt,
-                                                                        messagePrompt: meta.defaultMessagePrompt,
-                                                                    },
-                                                                }))}
-                                                            >
-                                                                Reset to defaults
-                                                            </Button>
-                                                        </Box>
+                                                        <Typography variant="caption" color="textSecondary">
+                                                            These texts are fixed in the engine's code so that the study protocol prints
+                                                            exactly what runs. They cannot be edited here.
+                                                        </Typography>
                                                     </Box>
                                                 </Collapse>
                                             </Box>
@@ -831,6 +801,29 @@ export const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                                 All heuristics are off — the system will enter{' '}
                                 <strong>Reactive mode</strong> and send no proactive notifications.
                             </Alert>
+                        )}
+                    </Box>
+
+                    <Divider />
+
+                    {/* ── Memory: identical for every condition (read-only, P9) ─── */}
+                    <Box>
+                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                            Memory (the same for every participant, in every condition)
+                        </Typography>
+                        {engineConfig ? (
+                            <Box display="flex" flexDirection="column" gap={1.5}>
+                                <ReadOnlyBlock
+                                    title="When and how"
+                                    text={`Built ${engineConfig.memory?.when}. Model ${engineConfig.memory?.model}, temperature ${engineConfig.memory?.temperature}, at most ${engineConfig.memory?.max_events_per_conversation} events per conversation. ${engineConfig.language}.`}
+                                />
+                                <ReadOnlyBlock title="Memory prompt" text={engineConfig.memory?.prompt} />
+                                <Typography variant="caption" color="textSecondary">
+                                    Published by the engine on {String(engineConfig.published_at).slice(0, 16).replace('T', ' ')} UTC.
+                                </Typography>
+                            </Box>
+                        ) : (
+                            <Alert severity="warning">The engine has not published its configuration yet.</Alert>
                         )}
                     </Box>
 
