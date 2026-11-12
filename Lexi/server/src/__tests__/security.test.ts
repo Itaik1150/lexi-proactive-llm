@@ -173,3 +173,72 @@ test('development origins only work outside production', () => {
 test('requests without an Origin header (server-to-server, mobile) are unaffected', () => {
     assert.equal(isOriginAllowed(undefined, { NODE_ENV: 'production' }), true);
 });
+
+// ── S9 / S12: admin routes require an admin login ────────────────────────────
+import { agentsRouter } from '../routers/agentsRouter.router';
+import { dataAggregationRouter } from '../routers/dataAggregationRouter.router';
+import { experimentsRouter } from '../routers/experimentsRouter.router';
+import { formsRouter } from '../routers/formsRouter';
+import { requireAdmin } from '../utils/adminMiddleware';
+import { createRequireAdmin } from '../utils/authMiddleware';
+
+const routes = (router: any) =>
+    router.stack
+        .filter((l: any) => l.route)
+        .map((l: any) => ({
+            path: l.route.path as string,
+            method: Object.keys(l.route.methods)[0],
+            first: l.route.stack[0].handle,
+        }));
+
+test('every agents, forms and data-export route is admin only', () => {
+    for (const router of [agentsRouter(), formsRouter(), dataAggregationRouter()]) {
+        const all = routes(router);
+        assert.ok(all.length >= 2);
+        for (const r of all) assert.equal(r.first, requireAdmin, `${r.method} ${r.path}`);
+    }
+});
+
+test('experiments: reading the full experiment and every change is admin only', () => {
+    const all = routes(experimentsRouter());
+    const adminOnly = ['get /', 'get /agent', 'get /:id', 'post /create', 'put /', 'put /status', 'put /content', 'delete /:id'];
+    const open = ['get /match-session', 'get /:id/public', 'get /:id/features', 'get /:id/content', 'get /:id/registrationForm', 'get /:id/conversationForms'];
+    for (const r of all) {
+        const key = `${r.method} ${r.path}`;
+        if (adminOnly.includes(key)) assert.equal(r.first, requireAdmin, key);
+        else assert.ok(open.includes(key), `${key} must be listed as open on purpose`);
+    }
+    assert.equal(all.length, adminOnly.length + open.length);
+});
+
+test('changing every participant’s agent is admin only', () => {
+    const r = routes(usersRouter()).find((x: any) => x.path === '/agent');
+    assert.equal(r.first, requireAdmin);
+});
+
+test('requireAdmin: no cookie 401, participant 403, unknown user 403, admin passes', async () => {
+    const cookie = (id: string) => ({ cookies: { token: jwt.sign({ id }, 'test-secret') } }) as any;
+    const users: Record<string, any> = { admin1: { isAdmin: true }, p1: { isAdmin: false } };
+    const mw = createRequireAdmin(async (id) => users[id]);
+    const run = async (req: any) => {
+        const res = makeRes();
+        let called = false;
+        await mw(req, res, () => (called = true));
+        return { status: res.statusCode, called };
+    };
+    assert.deepEqual(await run({}), { status: 401, called: false });
+    assert.deepEqual(await run(cookie('p1')), { status: 403, called: false });
+    assert.deepEqual(await run(cookie('ghost')), { status: 403, called: false });
+    assert.deepEqual(await run(cookie('admin1')), { status: 200, called: true });
+});
+
+test('requireAdmin: a database error does not let anyone in', async () => {
+    const mw = createRequireAdmin(async () => {
+        throw new Error('db down');
+    });
+    const res = makeRes();
+    let called = false;
+    await mw({ cookies: { token: jwt.sign({ id: 'admin1' }, 'test-secret') } } as any, res, () => (called = true));
+    assert.equal(res.statusCode, 403);
+    assert.equal(called, false);
+});

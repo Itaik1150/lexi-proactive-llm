@@ -24,3 +24,28 @@ export const requireUser = (req: Request, res: Response, next: NextFunction): vo
         res.status(401).json({ message: 'Not authenticated' });
     }
 };
+
+type AdminLookup = (userId: string) => Promise<{ isAdmin?: boolean } | null | undefined>;
+
+/**
+ * Requires a valid login cookie of an ADMIN account (docs/REVIEW.md S9, S12). Everything that reads
+ * or changes experiments, agents, forms or exported participant data must run behind this.
+ * 401 = not logged in, 403 = logged in but not an admin.
+ */
+export const createRequireAdmin =
+    (findUser: AdminLookup) =>
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        let allowed = false;
+        requireUser(req, res, () => (allowed = true));
+        if (!allowed) return; // requireUser already answered 401
+        try {
+            const user = await findUser(res.locals.userId);
+            if (!user || user.isAdmin !== true) {
+                res.status(403).json({ message: 'Admin only' });
+                return;
+            }
+            next();
+        } catch (error) {
+            res.status(403).json({ message: 'Admin only' });
+        }
+    };

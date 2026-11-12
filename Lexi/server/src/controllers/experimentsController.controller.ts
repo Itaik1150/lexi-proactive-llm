@@ -126,7 +126,12 @@ class ExperimentsController {
         const experimentId = req.params.id as string;
         const experimentFeatures = await experimentsService.getExperimentFeatures(experimentId);
 
-        res.status(200).send(experimentFeatures);
+        // Open endpoint: a participant's browser needs only these two flags. The proactive settings
+        // (weights, prompts, schedule) would reveal the condition, so they are never sent (S12).
+        res.status(200).send({
+            userAnnotation: !!experimentFeatures?.userAnnotation,
+            streamMessage: !!experimentFeatures?.streamMessage,
+        });
     });
 
     deleteExperiment = requestHandler(async (req: Request, res: Response) => {
