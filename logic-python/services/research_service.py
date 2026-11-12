@@ -71,15 +71,23 @@ class ResearchService:
                 "agent.firstChatSentence": message,
                 "proactiveMemory.injected_prompt_original": original,
             }
-            # Task 6.9: store memory/conversation linkage for context injection
-            if linked_memory_id:
-                update_fields["proactiveMemory.linked_memory_id"] = linked_memory_id
-            if linked_conversation_id:
-                update_fields["proactiveMemory.linked_conversation_id"] = linked_conversation_id
+            # Task 6.9: store memory/conversation linkage for context injection. A message with no
+            # memory behind it (Standard pool, Affective summary or pool) REMOVES the old linkage;
+            # otherwise the chat would believe this notification was about an earlier event.
+            to_unset = {}
+            for path, value in (("proactiveMemory.linked_memory_id", linked_memory_id),
+                                ("proactiveMemory.linked_conversation_id", linked_conversation_id)):
+                if value:
+                    update_fields[path] = value
+                else:
+                    to_unset[path] = ""
+            update = {"$set": update_fields}
+            if to_unset:
+                update["$unset"] = to_unset
 
             mongodb_client.db[mongodb_client.users_collection].update_one(
                 {"_id": ObjectId(user_id)},
-                {"$set": update_fields},
+                update,
             )
             return True
 
@@ -464,6 +472,11 @@ class ResearchService:
             # Task 6.7: logging metadata from heuristic instance
             "was_fallback":      h.used_fallback,
             "memory_content":    h.memory_content,
+            # M4/M5: where the message came from, which event it used and how old that event was
+            "message_source":    h.message_source,
+            "memory_id":         h.linked_memory_id,
+            "memory_age_days":   h.memory_age_days,
+            "llm_attempts":      h.llm_attempts,
             "language":          h.language,
         }, h
 

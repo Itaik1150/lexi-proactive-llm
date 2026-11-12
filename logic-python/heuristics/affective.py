@@ -1,54 +1,120 @@
 """
-Affective Heuristic
+Affective Heuristic: the Affective Proactive condition (docs/REVIEW.md D13, D14, D16, D19, D25).
 
-Writes an empathetic check-in that refers to a personal event the participant shared earlier.
+Memory is built by the shared pipeline (services/memory_pipeline.py, M1), the same for every
+condition. This class only READS it and writes one notification from one of three sources,
+logged per send as `message_source`:
 
-Memory is built by the shared pipeline (services/memory_pipeline.py, docs/REVIEW.md M1), the same
-for every condition. This class only READS it: get_proactive_message() picks the best unused event
-(or falls back to a warm invitation) and generates the message. An event is marked used as soon as
-it is selected, so each one fires at most once.
+  event    the best unused event (highest score, then the most recent; no expiry; each event used
+           once) -> the model writes about it (protocol A.3, event prompt)
+  summary  no unused event, but earlier conversation notes exist -> the model writes a continuity
+           message from the recent dated notes (A.3, summary prompt)
+  pool     no notes yet (the first days), or the model failed, or its answer was too long twice
+           -> a message from the fixed warm pool (A.5)
 
-MongoDB fields read (inside proactiveMemory):
-  emotional_memories: [{memory_id, content, affective_score, conversationId, timestamp_iso, used, ...}]
+The prompts are fixed here so that the protocol prints exactly what runs; the dashboard's message
+prompt for this heuristic is ignored (docs/REVIEW.md P9).
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import List, Optional
 
 from bson import ObjectId as _ObjectId
 
 from heuristics.base_heuristic import BaseHeuristic
+from services import message_pools
+
+# ── Protocol appendix A.3. Change it there and here together. ────────────────
+_PROMPT_HEAD = "You write one push notification from Lexi, an AI companion, to a participant in a research study.\n\n"
+
+_EVENT_TASK = (
+    "Write ONE sentence of at most 15 words, in English. Name the specific event the participant shared, "
+    "in their own terms (for example \"your presentation on Friday\"), and gently ask how it went or how "
+    "they feel about it.\n\n"
+)
+
+_SUMMARY_TASK = (
+    "No specific event is available today. Write ONE warm sentence of at most 15 words that shows you "
+    "remember the participant's recent days, using the background summaries, and invites them to talk. "
+    "Do not invent anything that is not in the summaries.\n\n"
+)
+
+_PROMPT_RULES = (
+    "Rules:\n"
+    "- Mild feeling wording is fine (\"you seemed stressed\"). Never claim to know how they feel. "
+    "Never be dramatic or clinical.\n"
+    "- If the topic is sensitive (health, family conflict, money), refer to it softly without details, "
+    "for example \"what you shared the other day\".\n"
+    "- Use today's date and the date of the event to phrase the timing naturally (\"yesterday\", "
+    "\"last week\", \"before Friday\").\n"
+    "- Use the participant's first name at most once, and only if it feels natural.\n"
+    "- No advice, no emojis. Never mention memories, notes or summaries.\n\n"
+    "Return only the message text, no quotes and no label."
+)
+
+EVENT_PROMPT = _PROMPT_HEAD + _EVENT_TASK + _PROMPT_RULES
+SUMMARY_PROMPT = _PROMPT_HEAD + _SUMMARY_TASK + _PROMPT_RULES
+
+MAX_WORDS = 20        # an answer longer than this is asked for once more, then the pool is used
+RECENT_NOTES = 5      # how many of the newest conversation notes are given as background
+TEMPERATURE = 0.7
+MAX_TOKENS = 80
+
+
+def format_day(value) -> str:
+    """'Monday 26 October 2026' (same wording as the chat prompt); '' if it is not a date."""
+    try:
+        d = value if isinstance(value, date) else datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return ""
+    return f"{d:%A} {d.day} {d:%B %Y}"
+
+
+def _day(value) -> Optional[date]:
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def choose_event(events: List[dict]) -> Optional[dict]:
+    """M4 (D13): the unused event with the highest score; among equal scores the most recent. No expiry."""
+    unused = [e for e in events if not e.get("used") and e.get("memory_id") and e.get("content")]
+    if not unused:
+        return None
+    return max(unused, key=lambda e: (
+        int(e.get("affective_score") or 1),
+        str(e.get("conversation_date") or e.get("timestamp_iso") or ""),
+        str(e.get("timestamp_iso") or ""),
+    ))
+
+
+def recent_notes(notes: dict, limit: int = RECENT_NOTES) -> List[str]:
+    """The newest conversation notes as dated lines, oldest first."""
+    items = sorted(
+        ((n.get("conversation_date") or "", n.get("updated_at") or "", str(n.get("summary") or "").strip())
+         for n in (notes or {}).values() if isinstance(n, dict)),
+    )
+    items = [i for i in items if i[2]][-limit:]
+    return [f"- {format_day(d) or 'Earlier'}: {text}" for d, _, text in items]
+
+
+def _ago(days: Optional[int]) -> str:
+    if days is None:
+        return ""
+    return "today" if days <= 0 else ("1 day ago" if days == 1 else f"{days} days ago")
 
 
 class AffectiveHeuristic(BaseHeuristic):
-    """
-    Empathetic check-in about a personal event from an earlier conversation. Always produces a
-    message (the cold-start path ensures there is always something to send).
 
-    Memory field: proactiveMemory.emotional_memories, written by the shared memory pipeline.
-    """
+    POOL = "affective"
 
-    DEFAULT_MESSAGE_PROMPT = (
-        "You are an empathetic assistant that encourages emotional sharing.\n"
-        "Generate a warm, personal emotional check-in (max 15 words) "
-        "that directly references the specific emotional memory the user shared.\n"
-        "Acknowledge their feelings without being dramatic or clinical.\n"
-        "Invite them to share how they are feeling about it now.\n"
-        "You MAY use the user's name once if it feels natural."
-    )
-
-    _COLD_START_PROMPT = (
-        "You are an empathetic assistant that encourages emotional sharing.\n"
-        "Generate a gentle, warm invitation (max 15 words) "
-        "focused on emotional support and being a listening ear today.\n"
-        "Use the user's name naturally."
-    )
-
-    _MEMORY_EXPIRY_HOURS: int = 72
     # memory_id marked `used` by the current get_proactive_message() call (None until then).
     _selected_memory_id: Optional[str] = None
+    _pool_previous: Optional[dict] = None
+    _pool_taken: bool = False
 
     def create_memory(self) -> None:
         """
@@ -63,169 +129,138 @@ class AffectiveHeuristic(BaseHeuristic):
         except Exception as e:
             print(f"⚠️  AffectiveHeuristic memory catch-up ({self.username}): {e}")
 
+    # ── Writing ──────────────────────────────────────────────────────────────
+
+    def _write(self, system: str, user_content: str) -> Optional[str]:
+        """Ask the model, at most twice; None if it failed or stayed over MAX_WORDS."""
+        for _ in range(2):
+            self.llm_attempts += 1
+            try:
+                text = (self.llm_service.call_with_prompt(
+                    system=system, user_content=user_content, temperature=TEMPERATURE, max_tokens=MAX_TOKENS,
+                ) or "").strip()
+            except Exception as e:
+                print(f"⚠️  AffectiveHeuristic model call ({self.username}): {e}")
+                return None
+            if len(text) >= 2 and text[0] in ('"', "'") and text[0] == text[-1]:
+                text = text[1:-1].strip()
+            if text and len(text.split()) <= MAX_WORDS:
+                return text
+            print(f"⚠️  AffectiveHeuristic ({self.username}): answer of {len(text.split())} words, "
+                  f"over {MAX_WORDS}{', asking once more' if self.llm_attempts < 2 else ''}")
+        return None
+
+    def _event_content(self, event: dict, today: date, notes: dict) -> str:
+        shared = _day(event.get("conversation_date") or event.get("timestamp_iso"))
+        self.memory_age_days = (today - shared).days if shared else None
+        when = str(event.get("when") or "").strip()
+        when_day = format_day(event.get("when_date"))
+        lines = [
+            f"Today: {format_day(today)}",
+            f"First name: {self.name}",
+            f"Event: {event.get('content')}",
+        ]
+        if event.get("feeling"):
+            lines.append(f"Feeling they showed: {event['feeling']}")
+        if shared:
+            lines.append(f"Shared on: {format_day(shared)} ({_ago(self.memory_age_days)})")
+        if when:
+            lines.append(f"When it happens or happened, as they said it: {when}" + (f" ({when_day})" if when_day else ""))
+        background = recent_notes(notes)
+        if background:
+            lines.append("Background, recent conversation notes (oldest first):\n" + "\n".join(background))
+        return "\n".join(lines)
+
+    def _summary_content(self, today: date, notes: dict) -> str:
+        return "\n".join([
+            f"Today: {format_day(today)}",
+            f"First name: {self.name}",
+            "Background, recent conversation notes (oldest first):\n" + "\n".join(recent_notes(notes)),
+        ])
+
+    # ── Main ─────────────────────────────────────────────────────────────────
+
     def get_proactive_message(self) -> Optional[str]:
-        """
-        Always returns a message string:
-        - context-rich path: picks the best unused emotional memory and generates
-          a personalised empathetic check-in referencing it
-        - cold-start path: no memories available → warm generic invitation to share
-          (Task 6.2: guaranteed fallback — never returns None)
-        """
         self.create_memory()
         self._reload_user()
 
-        emotional_memories = list(self._memory.get("emotional_memories") or [])
-        now = datetime.now(timezone.utc)
-        expiry_threshold = now - timedelta(hours=self._MEMORY_EXPIRY_HOURS)
+        memory = self._memory
+        notes = memory.get("conversation_notes") or {}
+        today = datetime.now(timezone.utc).date()
+        self.llm_attempts = 0
 
-        # Expire stale unused memories so old content is never resurfaced
+        event = choose_event(list(memory.get("emotional_memories") or []))
+        if event is not None:
+            self._mark_used(event["memory_id"])
+            text = self._write(EVENT_PROMPT, self._event_content(event, today, notes))
+            if text:
+                self.message_source = "event"
+                self.used_fallback = False
+                self.memory_content = str(event.get("content") or "")[:120]
+                self.linked_memory_id = event.get("memory_id")
+                self.linked_conversation_id = event.get("conversationId")
+                return text
+            # The model did not deliver: give the event back for a later notification.
+            self.undo_selection()
+            self.memory_age_days = None
+
+        elif recent_notes(notes):
+            text = self._write(SUMMARY_PROMPT, self._summary_content(today, notes))
+            if text:
+                self.message_source = "summary"
+                self.used_fallback = True
+                self.memory_content = ""
+                return text
+
+        self.message_source = "pool"
+        self.used_fallback = True
+        self.memory_content = ""
+        text, self._pool_previous = message_pools.take(self.mongodb_client, self.user_id, self.user, self.POOL)
+        self._pool_taken = True
+        return text
+
+    # ── State ────────────────────────────────────────────────────────────────
+
+    def _mark_used(self, memory_id: str) -> None:
+        """Mark the event used the moment it is chosen (by id, so exactly that one event)."""
         try:
-            if emotional_memories and self.mongodb_client.connect():
-                self.mongodb_client.db[self.mongodb_client.users_collection].update_many(
-                    {
-                        "_id": _ObjectId(self.user_id),
-                        "proactiveMemory.emotional_memories": {
-                            "$elemMatch": {
-                                "used": False,
-                                "timestamp_iso": {"$lt": expiry_threshold.isoformat()},
-                            }
-                        },
-                    },
+            if self.mongodb_client.connect():
+                self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
+                    {"_id": _ObjectId(self.user_id)},
                     {"$set": {"proactiveMemory.emotional_memories.$[elem].used": True}},
-                    array_filters=[{
-                        "elem.used": False,
-                        "elem.timestamp_iso": {"$lt": expiry_threshold.isoformat()},
-                    }],
+                    array_filters=[{"elem.memory_id": memory_id}],
                 )
+                self._selected_memory_id = memory_id
         except Exception as e:
-            print(f"⚠️  AffectiveHeuristic expire memories ({self.username}): {e}")
+            print(f"⚠️  AffectiveHeuristic mark-used ({self.username}): {e}")
         finally:
             self.mongodb_client.disconnect()
 
-        # Pick best unused memory (highest affective_score, then most recent)
-        unused = [m for m in emotional_memories if not m.get("used", False)]
-        has_context = bool(unused)
-
-        if has_context:
-            best = max(unused, key=lambda m: (
-                m.get("affective_score", 1),
-                m.get("timestamp_iso", "1900-01-01"),
-            ))
-            content = best.get("content", "")
-            score   = best.get("affective_score", 1)
-
-            # Task 6.7: record which memory drove this message
-            self.memory_content = content[:120]
-            self.used_fallback  = False
-            # Task 6.9: capture memory ID and source conversation for context injection
-            self.linked_memory_id = best.get("memory_id")
-            self.linked_conversation_id = best.get("conversationId")
-
-            system = self._safe_message_prompt(self.message_prompt)
-            user_content = (
-                f"USER NAME: {self.name}\n"
-                f"EMOTIONAL MEMORY: {content}\n"
-                f"AFFECTIVE DEPTH: {score}/10\n\n"
-                "Craft a highly personalised empathetic check-in referencing this memory."
-            )
-            # Mark ONLY this specific memory as used (surgical — keyed by memory_id).
-            # memory_id guarantees a single-element update even if duplicate content
-            # somehow exists in the array. Falls back to positional $ for legacy
-            # memories created before memory_id was introduced.
-            try:
-                if self.mongodb_client.connect():
-                    memory_id = best.get("memory_id")
-                    if memory_id:
-                        self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
-                            {"_id": _ObjectId(self.user_id)},
-                            {"$set": {"proactiveMemory.emotional_memories.$[elem].used": True}},
-                            array_filters=[{"elem.memory_id": memory_id}],
-                        )
-                        self._selected_memory_id = memory_id
-                    else:
-                        # Legacy fallback: match by content for pre-memory_id memories
-                        self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
-                            {
-                                "_id": _ObjectId(self.user_id),
-                                "proactiveMemory.emotional_memories": {
-                                    "$elemMatch": {"content": content, "used": False}
-                                },
-                            },
-                            {"$set": {"proactiveMemory.emotional_memories.$.used": True}},
-                        )
-                    print(f"💛 [{self.username}] Marked emotional memory as used: '{content[:50]}'")
-            except Exception as e:
-                print(f"⚠️  AffectiveHeuristic mark-used ({self.username}): {e}")
-            finally:
-                self.mongodb_client.disconnect()
-
-            try:
-                text = self.llm_service.call_with_prompt(
-                    system=system,
-                    user_content=user_content,
-                    temperature=0.7,
-                    max_tokens=80,
-                )
-                if text and len(text) >= 2 and text[0] in ('"', "'") and text[0] == text[-1]:
-                    text = text[1:-1].strip()
-                if not text:
-                    raise ValueError("empty LLM response")
-                return text
-            except Exception as e:
-                print(f"⚠️  AffectiveHeuristic message LLM ({self.username}): {e}")
-                # Language-aware static fallback
-                if self.language == "he":
-                    return f"היי {self.name}, חשבתי על מה ששיתפת. איך אתה מרגיש עם זה עכשיו?"
-                return f"Hi {self.name}, I was thinking about what you shared. How are you feeling about it now?"
-        else:
-            # Cold start: no unused memories — Task 6.2: guaranteed fallback
-            # Task 6.7: mark as fallback path
-            self.memory_content = ""
-            self.used_fallback  = True
-
-            print(f"💛 [{self.username}] Affective cold-start — no unused memories")
-            prompt = self._COLD_START_PROMPT
-            uc = (
-                f"USER NAME: {self.name}\n\n"
-                "Generate a gentle emotional invitation letting them know you are "
-                "here as a listening ear today."
-            )
-            # Language-aware static fallback if LLM fails
-            if self.language == "he":
-                fallback = f"היי {self.name}, רק בודק — אני כאן אם צריך אוזן קשבת."
-            else:
-                fallback = f"Hi {self.name}, just checking in — I'm here if you need a listening ear."
-            return self._cold_start_message(
-                prompt=prompt,
-                static_fallback=fallback,
-                user_content=uc,
-            )
-
     def undo_selection(self) -> bool:
         """
-        The memory is marked `used` the moment it is selected. If the send then fails, give it back
-        so the participant still gets a message based on it next time.
+        After a failed send (or a failed model call), give back what was taken: the event, so the
+        participant still gets a message based on it next time, and the pool message.
         """
+        undone = False
+        if self._pool_taken:
+            self._pool_taken = False
+            undone = message_pools.restore(self.mongodb_client, self.user_id, self.POOL, self._pool_previous) or undone
         memory_id = self._selected_memory_id
         if not memory_id:
-            return False
+            return undone
         try:
             if not self.mongodb_client.connect():
-                return False
+                return undone
             self.mongodb_client.db[self.mongodb_client.users_collection].update_one(
                 {"_id": _ObjectId(self.user_id)},
                 {"$set": {"proactiveMemory.emotional_memories.$[elem].used": False}},
                 array_filters=[{"elem.memory_id": memory_id}],
             )
             self._selected_memory_id = None
-            print(f"↩️  [{self.username}] Emotional memory {memory_id[:8]} un-used after a failed send")
+            print(f"↩️  [{self.username}] Emotional memory {memory_id[:8]} un-used")
             return True
         except Exception as e:
             print(f"⚠️  AffectiveHeuristic.undo_selection ({self.username}): {e}")
-            return False
+            return undone
         finally:
             self.mongodb_client.disconnect()
-
-    # No clear_after_send() override needed: the emotional memory is already
-    # marked used the moment it is selected in get_proactive_message(), so
-    # there is nothing left to clean up after a successful send.

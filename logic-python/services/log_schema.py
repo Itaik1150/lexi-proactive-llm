@@ -74,6 +74,11 @@ def build_log_entry(
         "generated_message":          message.get("generated_message", ""),
         "was_fallback":               message.get("was_fallback") if message else None,
         "memory_content":             message.get("memory_content", ""),
+        # M4/M5 (D25): "event" | "summary" | "pool"; the event used and its age; model calls needed
+        "message_source":             message.get("message_source") if message else None,
+        "memory_id":                  message.get("memory_id") if message else None,
+        "memory_age_days":            message.get("memory_age_days") if message else None,
+        "llm_attempts":               message.get("llm_attempts") if message else None,
         "language":                   message.get("language") if message else None,
         "topic_label":                message.get("topic_label", drawn or ""),
         "conversation_id":            conversation_id,

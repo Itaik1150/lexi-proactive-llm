@@ -62,7 +62,7 @@ class BaseHeuristic(ABC):
     STRUCTURAL_MESSAGE_SUFFIX: str = (
         "\n\n--- SYSTEM OUTPUT RULE (do not modify) ---\n"
         "Return ONLY the final notification message text. "
-        "No labels, no quotes, no explanations. Maximum 20 words."
+        "No labels, no quotes, no explanations."
     )
 
     def __init__(
@@ -107,6 +107,11 @@ class BaseHeuristic(ABC):
         self.memory_content: str = ""     # snippet of memory that drove the message
         self.linked_memory_id: str = None  # ID of specific memory/event used (for context injection)
         self.linked_conversation_id: str = None  # conversation where memory originated
+        # M4/M5 logging: where the message came from ("event", "summary", "pool"), how old the event
+        # was, and how many model calls it took (docs/REVIEW.md D25).
+        self.message_source: Optional[str] = None
+        self.memory_age_days: Optional[int] = None
+        self.llm_attempts: int = 0
 
     # ── Convenience properties ─────────────────────────────────────────────────
 
