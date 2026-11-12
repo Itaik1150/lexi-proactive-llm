@@ -57,7 +57,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
 | G1 | The admin dashboard still works after logging in: experiments list, editing an experiment, agents, forms, data export (JSON and Excel) | owner clicks through each | owner | ⬜ |
-| G2 | Without a login the admin routes are closed | Claude calls the experiments list and the data export with no cookie: both answer 401; a participant's login gets 403 | Claude | ⬜ |
+| G2 | Without a login the admin routes are closed | **12 Nov, live server, no cookie:** experiments list, full experiment, agents, forms, engine config and both data exports answer 401; health, public info, features (two flags only) and content stay open. Still to do: a participant's login gets 403 | Claude | ✅ (403 case open) |
 | G3 | A participant can still register, log in, chat and finish (nothing a participant needs was closed) | owner on the phone with a fresh account | owner | ⬜ |
 | G4 | The proactive-settings window shows the real prompts, pools and memory rules, with a recent "published" time | owner opens it; texts equal `docs/MESSAGE_POOLS.md` and protocol Appendix A | owner + Claude | ⬜ |
 | G5 | Tapping a notification is recorded | tap one on the phone; its `proactive_logs` row has `tapped_at` within seconds of the tap | owner + Claude | ⬜ |
