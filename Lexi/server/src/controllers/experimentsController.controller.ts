@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { conversationsService } from '../services/conversations.service';
 import { experimentsService } from '../services/experiments.service';
 import { formsService } from '../services/forms.service';
+import { getParticipation } from '../services/participation.service';
 import { usersService } from '../services/users.service';
 import { matchCurrentDevice, publicExperimentInfoFor } from '../services/sessionMatching';
 import { getClientIp } from '../utils/clientIp';
@@ -39,6 +40,11 @@ class ExperimentsController {
     getEngineConfig = requestHandler(async (req: Request, res: Response) => {
         const doc = await mongoose.connection.db.collection('system_config').findOne({ _id: 'engine' as any });
         res.status(200).json(doc || null);
+    });
+
+    // Who is really taking part: one row per participant (admin only; docs/REVIEW.md P5).
+    getParticipation = requestHandler(async (req: Request, res: Response) => {
+        res.status(200).json(await getParticipation(req.params.id as string));
     });
 
     getExperimentContent = requestHandler(async (req: Request, res: Response) => {

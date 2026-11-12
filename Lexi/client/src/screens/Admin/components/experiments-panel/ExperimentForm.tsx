@@ -245,6 +245,57 @@ const ExperimentForm = ({
                     borderBottom: '1px solid grey',
                 }}
             >
+                Study (Prolific):
+            </Typography>
+            <Typography style={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)', padding: '8px' }}>
+                The baseline is the Registration form above; the short survey after each conversation is the After
+                Conversation form. A participant linked to a Prolific ID sees the onboarding code after registering, and
+                the final code after submitting the end-of-study questionnaire. Use the same settings in all three
+                experiments of the study.
+            </Typography>
+            <Box width={'100%'} paddingLeft={'16px'} style={{ marginBottom: '8px' }}>
+                <StyledSelection
+                    label="End-of-study questionnaire"
+                    options={forms}
+                    control={control}
+                    name="studySettings.endSurveyForm"
+                    placeholder={'No Form'}
+                />
+            </Box>
+            <TextField
+                fullWidth
+                label="Study length (days)"
+                {...register('studySettings.durationDays')}
+                size="small"
+                margin="dense"
+                type="number"
+                InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+                fullWidth
+                label="Prolific completion code: onboarding study"
+                {...register('studySettings.onboardingCompletionCode')}
+                size="small"
+                margin="dense"
+                InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+                fullWidth
+                label="Prolific completion code: final study"
+                {...register('studySettings.finalCompletionCode')}
+                size="small"
+                margin="dense"
+                InputLabelProps={{ shrink: true }}
+                style={{ marginBottom: '24px' }}
+            />
+            <Typography
+                style={{
+                    color: 'grey',
+                    marginBottom: '4px',
+                    marginTop: '8px',
+                    borderBottom: '1px solid grey',
+                }}
+            >
                 Experiment Boundaries:
             </Typography>
             <Typography style={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)', padding: '8px' }}>

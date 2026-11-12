@@ -11,6 +11,7 @@ export const experimentsRouter = () => {
     router.get('/match-session', experimentsController.matchSession);
     router.get('/engine-config', requireAdmin, experimentsController.getEngineConfig);
     router.get('/:id', requireAdmin, experimentsController.getExperiment);
+    router.get('/:id/participation', requireAdmin, experimentsController.getParticipation);
     router.get('/:id/public', experimentsController.getExperimentPublicInfo);
     router.get('/:id/features', experimentsController.getExperimentFeatures);
     router.get('/:id/content', experimentsController.getExperimentContent);

@@ -1,4 +1,5 @@
 import { MoreOptionsMenu } from '@components/common/MoreOptionsMenu';
+import { ParticipationDialog } from '../ParticipationDialog';
 import { ProactiveSettingsModal } from '../ProactiveSettingsModal';
 import { AgentLeanType, ExperimentType } from '@models/AppModels';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -6,6 +7,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
+import PeopleAltOutlinedIcon from '@mui/icons-material/PeopleAltOutlined';
 import { Box, Collapse, IconButton, MenuItem, TableCell, TableRow, Tooltip, Typography } from '@mui/material';
 import theme from '@root/Theme';
 import React, { useState, useEffect } from 'react';
@@ -22,6 +24,7 @@ export const ExperimentRow: React.FC<ExperimentRowProps> = ({ row, onStatusChang
     const [open, setOpen] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [openProactiveModal, setOpenProactiveModal] = useState(false);
+    const [openParticipation, setOpenParticipation] = useState(false);
     const [currentExperiment, setCurrentExperiment] = useState<ExperimentType>(row);
     const [experimentAgentDetails, setExperimentAgentDetails] = useState<{
         activeAgent: AgentLeanType | null;
@@ -165,6 +168,11 @@ export const ExperimentRow: React.FC<ExperimentRowProps> = ({ row, onStatusChang
                                 )}
                             </IconButton>
                         </Tooltip>
+                        <Tooltip title="Participation" placement="top">
+                            <IconButton onClick={() => setOpenParticipation(true)}>
+                                <PeopleAltOutlinedIcon />
+                            </IconButton>
+                        </Tooltip>
                         <IconButton onClick={handleMenuClick}>
                             <MoreVertIcon />
                         </IconButton>
@@ -192,6 +200,12 @@ export const ExperimentRow: React.FC<ExperimentRowProps> = ({ row, onStatusChang
                 onClose={() => setOpenProactiveModal(false)}
                 experiment={currentExperiment}
                 onUpdate={handleProactiveUpdate}
+            />
+            <ParticipationDialog
+                open={openParticipation}
+                onClose={() => setOpenParticipation(false)}
+                experimentId={row._id}
+                title={row.title}
             />
         </React.Fragment>
     );

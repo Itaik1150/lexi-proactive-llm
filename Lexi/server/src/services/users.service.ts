@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { baselineAnswers } from './study.service';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
@@ -47,6 +48,8 @@ class UsersService {
             nativeEnglishSpeaker,
             agent,
             fcmToken, // Include FCM token if provided
+            // The experiment's own registration questionnaire (baseline): every answer that is not a fixed column.
+            registrationAnswers: baselineAnswers(user as unknown as Record<string, unknown>),
             isProactive: experiment.experimentFeatures?.proactiveSettings?.enabled ?? false,
         });
 

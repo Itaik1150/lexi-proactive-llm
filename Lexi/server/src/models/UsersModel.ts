@@ -39,6 +39,10 @@ export const userSchema = new Schema<IUser>(
         isProactive: { type: Boolean, default: false }, // Will be set in services when FCM token is added
         is_demo_finished: { type: Boolean, default: false },
         conversationSummaries: { type: [String], default: [] }, // Dual-Tier Memory: rolling summaries
+        // Study flow (services/study.service.ts, services/prolific.service.ts)
+        registrationAnswers: { type: Object }, // answers to the experiment's registration questionnaire (baseline)
+        study: { type: Object }, // { onboardingCodeAckAt, endSurvey: { answers, submittedAt } }
+        prolific: { type: Object }, // { pid, studyId, sessionId, linkedBy, linkedAt }
     },
     { versionKey: false },
 );

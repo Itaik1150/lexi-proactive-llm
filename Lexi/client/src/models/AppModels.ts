@@ -112,6 +112,12 @@ export interface ExperimentType {
     totalSessions: number;
     openSessions: number;
     experimentFeatures: ExperimentFeatures;
+    studySettings?: {
+        durationDays?: number;
+        endSurveyForm?: string;
+        onboardingCompletionCode?: string;
+        finalCompletionCode?: string;
+    };
 }
 
 export interface ExperimentLeanType {

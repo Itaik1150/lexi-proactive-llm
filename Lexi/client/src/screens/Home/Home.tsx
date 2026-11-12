@@ -18,6 +18,7 @@ import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import './Home.css';
+import StudyCards from './StudyCards';
 import {
     BodyContent,
     ButtonsBox,
@@ -160,6 +161,7 @@ const Home: React.FC = () => {
                     {experimentContent ? experimentContent.welcomeContent : ''}
                 </BodyContent>
             )}
+            {activeUser && !activeUser.isAdmin && <StudyCards />}
             <StartButton variant="contained" color="primary" onClick={startConversation} isMobile={isMobile}>
                 Start Conversation
             </StartButton>

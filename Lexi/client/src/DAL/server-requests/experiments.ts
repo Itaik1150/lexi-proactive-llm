@@ -125,6 +125,16 @@ export const getEngineConfig = async (): Promise<any | null> => {
     }
 };
 
+/** One row per participant of the experiment (admin only); an empty list on any problem. */
+export const getParticipation = async (experimentId: string): Promise<any[]> => {
+    try {
+        const response = await axiosInstance.get(`/${ApiPaths.EXPERIMENTS_PATH}/${experimentId}/participation`);
+        return response.data || [];
+    } catch (error) {
+        return [];
+    }
+};
+
 export const deleteExperiment = async (experimentId: string): Promise<void> => {
     try {
         await axiosInstance.delete(`/${ApiPaths.EXPERIMENTS_PATH}/${experimentId}`);

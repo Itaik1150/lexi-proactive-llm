@@ -26,6 +26,13 @@ export const experimentsSchema = new Schema<IExperiment>(
             preConversation: { type: String },
             postConversation: { type: String },
         },
+        // Study flow (services/study.service.ts): the end-of-study survey and the Prolific completion codes
+        studySettings: {
+            durationDays: { type: Number, default: 14 },
+            endSurveyForm: { type: String },
+            onboardingCompletionCode: { type: String },
+            finalCompletionCode: { type: String },
+        },
         maxMessages: { type: Number },
         maxConversations: { type: Number },
         maxParticipants: { type: Number },

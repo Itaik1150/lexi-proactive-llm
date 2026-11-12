@@ -51,6 +51,24 @@ export const linkProlificId = async (prolificId: string): Promise<void> => {
     await axiosInstance.post(`/${ApiPaths.USERS_PATH}/prolific-id`, { prolificId });
 };
 
+/** Where the participant is in the study (completion codes they may see, end survey); null on any problem. */
+export const getStudyStatus = async (): Promise<any | null> => {
+    try {
+        const response = await axiosInstance.get(`/${ApiPaths.USERS_PATH}/study-status`);
+        return response.data;
+    } catch (error) {
+        return null;
+    }
+};
+
+export const ackOnboardingCode = async (): Promise<void> => {
+    await axiosInstance.post(`/${ApiPaths.USERS_PATH}/onboarding-code-seen`);
+};
+
+export const submitEndSurvey = async (answers: Record<string, unknown>): Promise<void> => {
+    await axiosInstance.post(`/${ApiPaths.USERS_PATH}/end-survey`, { answers });
+};
+
 export const validateUserName = async (username: string, experimentId: string): Promise<boolean> => {
     try {
         const response = await axiosInstance.get(

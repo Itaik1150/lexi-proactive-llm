@@ -75,6 +75,11 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | H5 | The short survey appears after every finished conversation, in all three conditions, and is stored | finish a conversation in each condition; `metadata_conversations.postConversation` holds the answers | owner + Claude | ⬜ |
 | H6 | Prolific's rules allow installing the app from the study's own link | read Prolific's current policy on software downloads; say it clearly in the study description | owner | ⬜ |
 | H7 | Prolific filters: UK residents, Android phone | the study's audience settings | owner | ⬜ |
+| H8 | The baseline answers are stored | register with a Registration form that has extra questions; `users.registrationAnswers` holds them | owner + Claude | ⬜ |
+| H9 | The onboarding completion code appears after registration, only for a Prolific-linked participant, and disappears after "I have entered it" | phone, test Prolific id; a tester without a Prolific id sees no code | owner + Claude | ⬜ |
+| H10 | The end survey opens on the last study day, is stored once, and only then the final code appears | Claude moves a test account's registration date 14 days back; owner answers the survey on the phone; `users.study.endSurvey` is filled and the final code shows | owner + Claude | ⬜ |
+| H11 | The participation view shows the right numbers | compare one participant's row with their conversations and `proactive_logs`; download the CSV | owner + Claude | ⬜ |
+| H12 | The same study settings (codes, forms, 14 days) are entered in all three experiments | Claude compares the three experiment documents (with E1) | Claude | ⬜ |
 
 ## F. Protocol
 

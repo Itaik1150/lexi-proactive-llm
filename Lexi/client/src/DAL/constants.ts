@@ -54,6 +54,12 @@ export const defaultExperiment = {
         preConversation: null,
         postConversation: null,
     },
+    studySettings: {
+        durationDays: 14,
+        endSurveyForm: null,
+        onboardingCompletionCode: '',
+        finalCompletionCode: '',
+    },
     experimentFeatures: {
         userAnnotation: false,
         streamMessage: false,

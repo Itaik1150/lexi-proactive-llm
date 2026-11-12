@@ -22,6 +22,13 @@ export interface IUser {
     fcmTokenUpdatedAt?: Date;
     isProactive?: boolean;
     is_demo_finished?: boolean;
+    /** Answers to the experiment's registration questionnaire (the baseline), keyed by the form's field keys. */
+    registrationAnswers?: Record<string, string | number | boolean>;
+    /** Study flow (services/study.service.ts). */
+    study?: {
+        onboardingCodeAckAt?: Date;
+        endSurvey?: { answers: Record<string, string | number | boolean>; submittedAt: Date };
+    };
     /** Prolific linkage (services/prolific.service.ts); absent for internal test accounts. */
     prolific?: { pid: string; studyId?: string; sessionId?: string; linkedBy: 'auto' | 'manual'; linkedAt: Date };
     proactiveMemory?: {

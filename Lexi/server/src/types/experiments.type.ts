@@ -94,6 +94,12 @@ export interface IExperiment {
     description: string;
     numberOfParticipants: number;
     experimentForms: ExperimentForms;
+    studySettings?: {
+        durationDays?: number;
+        endSurveyForm?: string;
+        onboardingCompletionCode?: string;
+        finalCompletionCode?: string;
+    };
     maxMessages: number;
     maxConversations: number;
     maxParticipants: number;

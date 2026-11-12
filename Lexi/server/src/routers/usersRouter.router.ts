@@ -15,6 +15,9 @@ export const usersRouter = () => {
     router.post('/fcm-token', requireUser, usersController.updateFCMToken);
     router.post('/register-device', requireUser, usersController.registerDevice);
     router.post('/prolific-id', requireUser, usersController.linkProlificId);
+    router.get('/study-status', requireUser, usersController.getStudyStatus);
+    router.post('/onboarding-code-seen', requireUser, usersController.ackOnboardingCode);
+    router.post('/end-survey', requireUser, usersController.submitEndSurvey);
 
     return router;
 };

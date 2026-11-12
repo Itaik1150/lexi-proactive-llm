@@ -1,3 +1,7 @@
+import { UsersModel } from '../models/UsersModel';
+import { experimentsService } from '../services/experiments.service';
+import { formsService } from '../services/forms.service';
+import { cleanAnswers, studyStatus } from '../services/study.service';
 import { prolificService } from '../services/prolific.service';
 import { getClientIp } from '../utils/clientIp';
 import { CookieOptions, Request, Response } from 'express';
@@ -99,6 +103,49 @@ class UsersController {
     updateUsersAgent = requestHandler(async (req: Request, res: Response) => {
         const { agent } = req.body;
         await usersService.updateUsersAgent(agent);
+        res.status(200).send();
+    });
+
+    // ── Study flow (services/study.service.ts) ──────────────────────────────────────────────
+
+    private loadStudy = async (userId: string) => {
+        const user = await usersService.getUserById(userId);
+        if (!user || user.isAdmin) return null;
+        const experiment = await experimentsService.getExperiment(String(user.experimentId));
+        const status = studyStatus(user, experiment?.studySettings, new Date());
+        return { user, status };
+    };
+
+    /** Where the participant is in the study: day, completion codes they may see, end survey due. */
+    getStudyStatus = requestHandler(async (req: Request, res: Response) => {
+        const loaded = await this.loadStudy(res.locals.userId);
+        if (!loaded) {
+            res.status(200).json(null);
+            return;
+        }
+        const { status } = loaded;
+        const endSurveyForm =
+            status.endSurveyDue && status.endSurveyFormId ? await formsService.getForm(status.endSurveyFormId) : null;
+        res.status(200).json({ ...status, endSurveyForm });
+    });
+
+    /** The participant confirms that they submitted the onboarding completion code on Prolific. */
+    ackOnboardingCode = requestHandler(async (req: Request, res: Response) => {
+        await UsersModel.updateOne({ _id: res.locals.userId }, { $set: { 'study.onboardingCodeAckAt': new Date() } });
+        res.status(200).send();
+    });
+
+    /** Stores the end-of-study survey once, and only when it is due. */
+    submitEndSurvey = requestHandler(async (req: Request, res: Response) => {
+        const loaded = await this.loadStudy(res.locals.userId);
+        if (!loaded || !loaded.status.endSurveyDue) {
+            res.status(409).json({ message: 'The final questionnaire is not open.' });
+            return;
+        }
+        await UsersModel.updateOne(
+            { _id: res.locals.userId, 'study.endSurvey.submittedAt': { $exists: false } },
+            { $set: { 'study.endSurvey': { answers: cleanAnswers(req.body?.answers), submittedAt: new Date() } } },
+        );
         res.status(200).send();
     });
 

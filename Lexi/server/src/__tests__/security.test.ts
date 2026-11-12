@@ -201,7 +201,7 @@ test('every agents, forms and data-export route is admin only', () => {
 
 test('experiments: reading the full experiment and every change is admin only', () => {
     const all = routes(experimentsRouter());
-    const adminOnly = ['get /', 'get /agent', 'get /engine-config', 'get /:id', 'post /create', 'put /', 'put /status', 'put /content', 'delete /:id'];
+    const adminOnly = ['get /', 'get /agent', 'get /engine-config', 'get /:id', 'get /:id/participation', 'post /create', 'put /', 'put /status', 'put /content', 'delete /:id'];
     const open = ['get /match-session', 'get /:id/public', 'get /:id/features', 'get /:id/content', 'get /:id/registrationForm', 'get /:id/conversationForms'];
     for (const r of all) {
         const key = `${r.method} ${r.path}`;
