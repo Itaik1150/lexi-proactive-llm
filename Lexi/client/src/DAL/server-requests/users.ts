@@ -46,6 +46,11 @@ export const logout = async (): Promise<void> => {
     }
 };
 
+/** Links the logged-in participant to their Prolific id. Throws with response.data.message on a bad id. */
+export const linkProlificId = async (prolificId: string): Promise<void> => {
+    await axiosInstance.post(`/${ApiPaths.USERS_PATH}/prolific-id`, { prolificId });
+};
+
 export const validateUserName = async (username: string, experimentId: string): Promise<boolean> => {
     try {
         const response = await axiosInstance.get(

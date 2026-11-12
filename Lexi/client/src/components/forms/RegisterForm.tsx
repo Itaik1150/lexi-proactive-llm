@@ -1,8 +1,19 @@
 import { setActiveUser } from '@DAL/redux/reducers/activeUserReducer';
-import { registerUser } from '@DAL/server-requests/users';
+import { linkProlificId, registerUser } from '@DAL/server-requests/users';
 import { SnackbarStatus, useSnackbar } from '@contexts/SnackbarProvider';
 import { NewUserInfoType } from '@models/AppModels';
-import { Box, CircularProgress, Container } from '@mui/material';
+import {
+    Box,
+    Button,
+    CircularProgress,
+    Container,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
+    TextField,
+} from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useDispatch } from 'react-redux';
@@ -89,6 +100,22 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ experimentId, setSho
         return '';
     };
 
+    // Prolific id dialog (shown only when the server could not link the account by itself)
+    const [pendingDestination, setPendingDestination] = useState<string | null>(null);
+    const [prolificId, setProlificId] = useState('');
+    const [prolificError, setProlificError] = useState('');
+
+    const submitProlificId = async () => {
+        try {
+            await linkProlificId(prolificId.trim());
+            const destination = pendingDestination;
+            setPendingDestination(null);
+            navigate(destination);
+        } catch (error) {
+            setProlificError(error?.response?.data?.message || 'Could not save the ID. Please try again.');
+        }
+    };
+
     const onSubmit = async (data: NewUserInfoType) => {
         try {
             // Get FCM token with retry mechanism
@@ -125,6 +152,11 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ experimentId, setSho
             const destination = returnTo
                 ? decodeURIComponent(returnTo)
                 : Pages.EXPERIMENT.replace(':experimentId', experimentId);
+            // Prolific (P5): if the account could not be linked to a Prolific id automatically, ask for it first.
+            if ((user as any).prolificStatus === 'missing') {
+                setPendingDestination(destination);
+                return;
+            }
             navigate(destination);
             
         } catch (error) {
@@ -204,6 +236,34 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ experimentId, setSho
                     />
                 )}
             </Box>
+            <Dialog open={pendingDestination !== null} fullWidth maxWidth="xs">
+                <DialogTitle>Your Prolific ID</DialogTitle>
+                <DialogContent>
+                    <DialogContentText color={'black'} sx={{ mb: 2 }}>
+                        Please paste your Prolific ID (24 letters and digits) so that your participation can be
+                        credited. You can copy it from your Prolific account page.
+                    </DialogContentText>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        size="small"
+                        label="Prolific ID"
+                        value={prolificId}
+                        onChange={(e) => {
+                            setProlificId(e.target.value);
+                            setProlificError('');
+                        }}
+                        error={!!prolificError}
+                        helperText={prolificError}
+                        inputProps={{ maxLength: 30, autoCapitalize: 'none', autoCorrect: 'off' }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button variant="contained" onClick={submitProlificId} disabled={prolificId.trim().length < 24}>
+                        Continue
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Container>
     );
 };

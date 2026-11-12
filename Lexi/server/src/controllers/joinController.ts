@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { prolificService, readExperimentList, readProlificParams } from '../services/prolific.service';
 import { getClientIp, ipKey } from '../utils/clientIp';
 
 const APK_DOWNLOAD_URL =
@@ -112,6 +113,15 @@ export const buildLandingPage = (experimentId: string): string => `<!DOCTYPE htm
 </body>
 </html>`;
 
+const prolificQuery = (p: { pid: string; studyId?: string; sessionId?: string }): string =>
+    [
+        `PROLIFIC_PID=${p.pid}`,
+        p.studyId ? `STUDY_ID=${p.studyId}` : '',
+        p.sessionId ? `SESSION_ID=${p.sessionId}` : '',
+    ]
+        .filter(Boolean)
+        .join('&');
+
 class JoinController {
     // GET /join/:experimentId  →  serve landing page HTML
     landingPage = async (req: Request, res: Response): Promise<void> => {
@@ -126,8 +136,46 @@ class JoinController {
             res.status(500).type('text/plain').send('Something went wrong. Please try again.');
             return;
         }
+        // Prolific participant: remember who opened the link (and from which address), so that the
+        // account they register in the app can be linked to their Prolific id. A participant who was
+        // already assigned to another experiment is sent back to it: nobody changes condition.
+        const prolific = readProlificParams(req.query as Record<string, unknown>);
+        if (prolific) {
+            try {
+                const assigned = await prolificService.assignedExperiment(prolific.pid);
+                if (assigned && assigned !== experimentId.toLowerCase()) {
+                    res.redirect(`/join/${assigned}?${prolificQuery(prolific)}`);
+                    return;
+                }
+                await prolificService.recordJoin(prolific, experimentId.toLowerCase(), getClientIp(req));
+            } catch (err) {
+                console.error('[join] could not record the Prolific join:', err);
+            }
+        }
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.status(200).send(buildLandingPage(experimentId));
+    };
+
+    // GET /join/study?e=<id1>,<id2>,<id3>&PROLIFIC_PID=...  →  balanced random assignment, then the landing page
+    randomStudyLink = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const listed = readExperimentList(req.query.e);
+            const experimentIds: string[] = [];
+            for (const id of listed) if (await experimentExists(id)) experimentIds.push(id);
+            if (experimentIds.length < 2) {
+                sendInvalidLink(res);
+                return;
+            }
+            const prolific = readProlificParams(req.query as Record<string, unknown>);
+            const already = prolific ? await prolificService.assignedExperiment(prolific.pid) : null;
+            const chosen =
+                already && experimentIds.includes(already) ? already : await prolificService.chooseExperiment(experimentIds);
+            if (prolific) await prolificService.recordJoin(prolific, chosen, getClientIp(req));
+            res.redirect(`/join/${chosen}${prolific ? `?${prolificQuery(prolific)}` : ''}`);
+        } catch (err) {
+            console.error('[join] random assignment failed:', err);
+            res.status(500).type('text/plain').send('Something went wrong. Please try again.');
+        }
     };
 
     // GET /join/:experimentId/download  →  log IP + redirect to APK

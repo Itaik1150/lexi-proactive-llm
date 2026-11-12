@@ -1,3 +1,5 @@
+import { prolificService } from '../services/prolific.service';
+import { getClientIp } from '../utils/clientIp';
 import { CookieOptions, Request, Response } from 'express';
 import { usersService } from '../services/users.service';
 import { requestHandler } from '../utils/requestHandler';
@@ -16,8 +18,16 @@ class UsersController {
             const { userInfo, experimentId, fcmToken } = req.body;
             const { user, token } = await usersService.createUser(userInfo, experimentId, fcmToken);
 
+            // Prolific (P5): link the new account to the participant who opened the study link from
+            // this address. 'missing' makes the app ask the participant to paste their Prolific id.
+            const prolificStatus = await prolificService.linkAfterRegistration(
+                String(user._id),
+                String(experimentId),
+                getClientIp(req),
+            );
+
             res.cookie('token', token, cookieConfig);
-            res.status(200).send(user);
+            res.status(200).send({ ...user, prolificStatus });
         },
         (req, res, error) => {
             if (error.code === 11000) {
@@ -90,6 +100,22 @@ class UsersController {
         const { agent } = req.body;
         await usersService.updateUsersAgent(agent);
         res.status(200).send();
+    });
+
+    /** The logged-in participant typed their Prolific id (asked when it could not be linked automatically). */
+    linkProlificId = requestHandler(async (req: Request, res: Response) => {
+        const userId: string = res.locals.userId;
+        const user = await usersService.getUserById(userId);
+        if (!user) {
+            res.status(401).json({ message: 'Not authenticated' });
+            return;
+        }
+        const result = await prolificService.linkManually(userId, String(user.experimentId), req.body?.prolificId);
+        if (result.ok === false) {
+            res.status(result.status).json({ message: result.message });
+            return;
+        }
+        res.status(200).json({ prolificStatus: 'linked' });
     });
 
     /**

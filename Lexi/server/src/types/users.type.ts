@@ -22,6 +22,8 @@ export interface IUser {
     fcmTokenUpdatedAt?: Date;
     isProactive?: boolean;
     is_demo_finished?: boolean;
+    /** Prolific linkage (services/prolific.service.ts); absent for internal test accounts. */
+    prolific?: { pid: string; studyId?: string; sessionId?: string; linkedBy: 'auto' | 'manual'; linkedAt: Date };
     proactiveMemory?: {
         injected_prompt_original?: string;
         /** Legacy: written by earlier engine versions (2h expiry that no longer exists); removed by greetingReset. */

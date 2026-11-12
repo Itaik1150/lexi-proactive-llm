@@ -14,6 +14,7 @@ export const usersRouter = () => {
     // A push token identifies where a participant's notifications go, so only the logged-in user may set their own.
     router.post('/fcm-token', requireUser, usersController.updateFCMToken);
     router.post('/register-device', requireUser, usersController.registerDevice);
+    router.post('/prolific-id', requireUser, usersController.linkProlificId);
 
     return router;
 };
