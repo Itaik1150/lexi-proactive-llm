@@ -86,5 +86,8 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
 | F1 | No highlighted placeholder is left (daily window, time zones, Prolific details) | search `\hl{` and `\todo` in `docs/private/overleaf/main.tex` | owner + Claude | ⬜ |
-| F2 | Every prompt in Appendix A is exactly the one in the code | compare A.1–A.5 with `memory_pipeline.py`, `affective.py`, `message_pools.py` and the agent's persona | Claude | ⬜ |
+| F2 | Every prompt in Appendix A is exactly the one in the code | *12 Nov: checked by script: the memory prompt, both Affective prompts and both pools are identical to the code.* Still to do: the persona text and temperature 0.7 in the agent of each experiment | Claude | 🟡 |
 | F3 | The protocol in Overleaf is the latest version | `git status` in `docs/private/overleaf` is clean and pushed | Claude | ⬜ |
+| F4 | The protocol compiles in Overleaf without errors after the 12 Nov revision (new `framed` package for the yellow blocks, the questionnaire table) | owner opens the project and recompiles; Claude fixes anything reported | owner + Claude | ⬜ |
+| F5 | The 15 references added on 12 Nov are correct | compare each with the original publication | owner | ⬜ |
+| F6 | The data-donation measure (screen time of social apps) is either built or stays out | the protocol now measures social connectedness by loneliness and names data donation as an optional extension | owner decision | ⬜ |
