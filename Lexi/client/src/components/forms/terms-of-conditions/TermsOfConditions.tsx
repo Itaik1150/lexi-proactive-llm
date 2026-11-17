@@ -1,6 +1,4 @@
-import GetAppIcon from '@mui/icons-material/GetApp';
-import OpenInFullIcon from '@mui/icons-material/OpenInFull';
-import { Box, Checkbox, Link, Typography } from '@mui/material';
+import { Box, Checkbox, Typography } from '@mui/material';
 import React from 'react';
 import { FitButton } from '../CommonFormStyles.s';
 import {
@@ -8,12 +6,69 @@ import {
     TermsButtonContainer,
     TermsFormControl,
     TermsMainContainer,
-    TermsMenuContainer,
     TermsPaper,
 } from './TermsOfConditions.s';
 
-const htmlContent = `<h5 style="padding-top: 1pt;padding-left: 5pt;text-indent: 0pt;text-align: justify;">Consent Form - <i>Data collection for the research project: </i>“Talking with   a   Chatbot   about   emotional   experiences”</h5><p style="text-indent: 0pt;text-align: left;"><br></p><p style="padding-left: 5pt;text-indent: 0pt;text-align: justify;">Thank you for agreeing to take part in this study. You will participate in ongoing interactions with the Chatbot <i>Sam</i>, who will be asking you about your emotional experiences. You can chat with Sam for as long as you like for as many times as you like during the month-long period of the study. This research project aims at paving the way for promoting emotional expression to autonomous conversational agents (i.e., chatbots). The study is funded by <span class="s3">EPSRC ARoEQ Project. </span>Your insights will significantly contribute to our understanding of human interaction with chatbots in various contexts. Thank you for considering participation.</p><p style="text-indent: 0pt;text-align: left;"><br></p><h2 style="padding-left: 5pt;text-indent: 0pt;line-height: 15pt;text-align: left;">Researchers<span class="p">:</span></h2><p style="padding-left: 5pt;text-indent: 0pt;line-height: 15pt;text-align: left;">Dr Guy Laban, Dr Arik Cheshin, and Professor Hatice Gunes</p><p style="text-indent: 0pt;text-align: left;"><br></p><p style="text-indent: 0pt;text-align: left;"></p><p class="s4" style="padding-left: 5pt;text-indent: 0pt;text-align: justify;">Where     is     the     study     going     to     take     place? <span class="p">The interaction and all aspects of participation in the study will take place online on a website developed specifically for this study, and on Qualtrics. The study is organised by the Department of Computer Science and Technology, William Gates Building, JJ Thomson Avenue,            Cambridge,            CB30FD,            England.</span></p><p style="text-indent: 0pt;text-align: left;"><br></p><h2 style="padding-left: 5pt;text-indent: 0pt;text-align: justify;">What is the nature of the data collections and how will the information be stored and<span class="s4"> </span>analysed?</h2><p style="text-indent: 0pt;text-align: left;"><br></p><p style="padding-top: 2pt;padding-left: 5pt;text-indent: 0pt;text-align: justify;">Your involvement includes engaging with the chatbot Sam at your convenience. During your first interaction you will need to choose a username that will serve as your user ID, and you will be asked to provide demographic information. Before and after each interaction with Sam you will share your feelings through brief questionnaires. You may go on and participate as many times as you like during the month-long period of the study duration. You will not need to register every time you aim to interact with Sam the chatbot, but will only need to provide the username you chose for your participation. Each interaction can take as long as you wish for. Typically, the questionnaires can be completed in under 10 minutes, on average. The study aims to explore emotional expression related to current events.</p><p style="text-indent: 0pt;text-align: left;"><br></p><p style="padding-left: 5pt;text-indent: 0pt;text-align: justify;">Your privacy is paramount, as all data will be pseudonymized and securely stored. The data collected (text logs and questionnaire data) will be stored on a secure network and only the research team will make them available upon your approval. If you agree to participate, the data may be shared with researchers requiring data access for other similar ethically approved research protocols, where the same standards of confidentiality will apply. We are not collecting any sort of identifiable information.</p><p style="text-indent: 0pt;text-align: left;"><br></p><h2 style="padding-left: 5pt;text-indent: 0pt;text-align: justify;">What  are  the  benefits,  risks,  costs,  and  compensation  of  participation?</h2><p style="text-indent: 0pt;text-align: left;"><br></p><p style="padding-top: 2pt;padding-left: 5pt;text-indent: 0pt;text-align: justify;">The expected benefit of participants is having a safe space to disclose your emotions at any time you want. An additional benefit for participants is the contribution toward the creation of chatbots and artificial intelligence that can communicate with people naturally. The expected risks of participating are minimal, not to exceed those of everyday life.</p><p style="padding-top: 1pt;padding-left: 5pt;text-indent: 0pt;text-align: left;">There are no costs associated with taking part in this study.</p><p style="text-indent: 0pt;text-align: left;"><br></p><p class="s5" style="padding-left: 5pt;text-indent: 0pt;text-align: left;">Questions</p><p style="padding-top: 3pt;padding-left: 5pt;text-indent: 0pt;text-align: justify;">Your participation will be voluntary. If at any point, you do not wish to continue with the study, you can withdraw from the experiment. This will have no negative effects for you. You could withdraw from the experiment simply by telling the experimenter and ask for the deletion of the data recorded so far. At any time, you can contact us and ask for the deletion of your data, as long as it has not been analysed or published yet. The recorded data will be used by our team or researchers who require access to the data.</p><p style="padding-top: 2pt;padding-left: 6pt;text-indent: 0pt;text-align: justify;"><a href="mailto:gl538@cam.ac.uk" class="s8" target="_blank">If you have some questions or another query, please contact Dr Guy Laban by </a><span style=" color: #1154CC; font-family:Calibri, sans-serif; font-style: normal; font-weight: normal; text-decoration: underline; font-size: 12pt;">gl538@cam.ac.uk</span><a href="mailto:acheshin@univ.haifa.ac.il" class="s8" target="_blank">, Dr Arik Cheshin by </a><span style=" color: #1154CC; font-family:Calibri, sans-serif; font-style: normal; font-weight: normal; text-decoration: underline; font-size: 12pt;">acheshin@univ.haifa.ac.il</span><a href="mailto:hg410@cam.ac.uk" class="s8" target="_blank">, or Prof. Hatice Gunes by email at </a><a href="mailto:hg410@cam.ac.uk" class="s7" target="_blank">hg410@cam.ac.uk</a><a href="mailto:hg410@cam.ac.uk" class="s8" target="_blank">.</a></p><p style="text-indent: 0pt;text-align: left;"><br></p><p class="s5" style="padding-top: 2pt;padding-left: 5pt;text-indent: 0pt;text-align: left;">Consent Confirmation</p><p style="text-indent: 0pt;text-align: left;"><br></p><ul id="l1"><li data-list-text="●"><p class="s9" style="padding-top: 2pt;padding-left: 41pt;text-indent: -18pt;text-align: justify;">I confirm that I fully understood the purpose of the session and my involvement in it.</p></li><li data-list-text="●"><p class="s9" style="padding-left: 41pt;text-indent: -18pt;text-align: justify;">I confirm that all my questions regarding my involvement with this session have been answered to my satisfaction.</p></li><li data-list-text="●"><p class="s9" style="padding-left: 41pt;text-indent: -18pt;text-align: justify;">I confirm that I understand that I am not obliged to participate in this session and that I may withdraw from the session at any stage without the need to justify my decision and without personal disadvantage.</p></li><li data-list-text="●"><p class="s9" style="padding-left: 41pt;text-indent: -18pt;text-align: justify;">I confirm that I have understood that my data will be used for scientific publications in pseudonymous form, and I give informed consent to this usage.</p></li><li data-list-text="●"><p class="s9" style="padding-left: 41pt;text-indent: -18pt;text-align: justify;">I confirm that I understand that my data will be released for re-use by other researchers.</p></li></ul><p style="text-indent: 0pt;text-align: left;"><br></p><p class="s10" style="padding-left: 5pt;text-indent: 0pt;text-align: left;">Date     and     Place:     <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </u></p><p class="s10" style="padding-top: 6pt;padding-left: 5pt;text-indent: 0pt;line-height: 142%;text-align: left;">Name of the Participant: <u>&nbsp;</u> Signature of the Participant: <u>&nbsp;</u> Signature of the Experimenter: <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </u></p>`;
-const termsPdfUrl = 'TermsOfConditions.pdf';
+/**
+ * Informed consent, shown at registration when the experiment's registration form has
+ * `termsOfConditions: true`.
+ *
+ * DRAFT (17 Nov 2026): placeholder written for testing. It must be replaced by the text approved by
+ * the ethics committee of Ben-Gurion University before any real participant is recruited
+ * (docs/REVIEW.md P8, X1). It describes what the system really does with the data; keep it that way.
+ */
+const htmlContent = `
+<p><b>Study:</b> Lexi Takes the Lead &ndash; conversations with an AI companion</p>
+<p><b>Researchers:</b> Itai Kohn and Dr. Guy Laban, Department of Industrial Engineering and Management,
+Ben-Gurion University of the Negev.</p>
+
+<h4>What is this study about?</h4>
+<p>We study how people talk with an AI companion over time. You will use an application called Lexi on your
+Android phone for 14 days. Lexi is a computer program based on artificial intelligence. It is not a person and it
+is not a therapist.</p>
+
+<h4>What will you be asked to do?</h4>
+<ul>
+<li>Answer a questionnaire now, and another one at the end of the 14 days (a few minutes each).</li>
+<li>Talk with Lexi in writing, whenever you like and about whatever you like, at least 6 times a week. Please end
+each conversation with the Finish button and answer four short questions about it.</li>
+<li>Depending on the group you were assigned to at random, Lexi may send you notifications during the day.</li>
+</ul>
+
+<h4>What information is collected?</h4>
+<ul>
+<li>What you write to Lexi and what Lexi answers, and summaries of your conversations that the system creates so
+that Lexi can remember them.</li>
+<li>When you use the application and how you respond to notifications.</li>
+<li>Your answers to the questionnaires, your age and gender, the user name you choose, and your Prolific ID.</li>
+</ul>
+<p>To produce Lexi's answers, the text of your conversations is processed by an external artificial-intelligence
+service (OpenAI). Please do not write names, addresses or other details that identify you or other people.</p>
+
+<h4>How is the information protected?</h4>
+<p>The information is stored on secured servers and is available only to the research team. It is identified by
+your user name and your Prolific ID, not by your real name. Results are published only in a form that does not
+identify individual participants. Excerpts of conversations may be quoted in publications only after removing
+any identifying detail.</p>
+
+<h4>Risks and benefits</h4>
+<p>Talking about personal matters may sometimes be uncomfortable. You decide what to share, and you can stop a
+conversation at any time. Lexi cannot help in an emergency. If you feel that you are in danger or in crisis,
+please contact your local emergency services or a crisis line. There is no direct benefit to you apart from the
+payment; the study may help to design AI companions that respect their users.</p>
+
+<h4>Voluntary participation</h4>
+<p>Taking part is voluntary. You may stop at any time without giving a reason, and you may ask the researchers
+to delete your data as long as it has not been analysed or published. Payment is made through Prolific as
+described in the study listing.</p>
+
+<h4>Questions</h4>
+<p>For any question about the study, please contact the researchers through Prolific.</p>
+
+<h4>Consent</h4>
+<p>By ticking the box below you confirm that you are 18 or older, that you have read and understood this
+information, and that you agree to take part in the study and to the use of your data as described above.</p>
+`;
 
 interface TermsOfConditionsProps {
     setPage: (page: number) => void;
@@ -30,21 +85,10 @@ const TermsOfConditions: React.FC<TermsOfConditionsProps> = ({ setPage, onSubmit
     return (
         <TermsMainContainer>
             <Typography variant="h5" gutterBottom>
-                Terms and Conditions
+                Information and Consent
             </Typography>
             <TermsPaper>
                 <TermsBox>
-                    <TermsMenuContainer>
-                        <Link href={termsPdfUrl} width={'fit-content'} download>
-                            <GetAppIcon />
-                        </Link>
-                        <Link href={termsPdfUrl} width={'fit-content'} download>
-                            <OpenInFullIcon />
-                        </Link>
-                    </TermsMenuContainer>
-                    <Typography id="modal-modal-title" variant="h6" component="h2">
-                        Full Terms and Conditions
-                    </Typography>
                     <Box dangerouslySetInnerHTML={{ __html: htmlContent }} />
                 </TermsBox>
             </TermsPaper>
@@ -52,7 +96,7 @@ const TermsOfConditions: React.FC<TermsOfConditionsProps> = ({ setPage, onSubmit
                 control={
                     <Checkbox checked={isAgreed} onChange={handleAgreeChange} name="agreed" color="primary" />
                 }
-                label="I agree to the Terms and Conditions"
+                label="I have read the information above and I agree to take part"
             />
             <TermsButtonContainer>
                 <FitButton

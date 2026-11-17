@@ -26,6 +26,15 @@ class FakeCollection:
     def insert_one(self, doc):
         self.docs.append(doc)
 
+    def update_one(self, flt, update):
+        doc = self.find_one(flt)
+        for path, value in update["$set"].items():
+            target = doc
+            *parents, last = path.split(".")
+            for key in parents:
+                target = target.setdefault(key, {})
+            target[last] = value
+
 
 def fake_db():
     return {"agents": FakeCollection(), "forms": FakeCollection(), "experiments": FakeCollection()}
@@ -35,13 +44,13 @@ class StudySetup(unittest.TestCase):
     def test_a_dry_run_creates_nothing(self):
         db = fake_db()
         result = ss.setup(db, apply=False, now=NOW)
-        self.assertEqual(len(result["created"]), 5)
+        self.assertEqual(len(result["created"]), 7)
         self.assertEqual([len(c.docs) for c in db.values()], [0, 0, 0])
 
     def test_apply_creates_one_agent_one_form_three_experiments(self):
         db = fake_db()
         ss.setup(db, apply=True, now=NOW)
-        self.assertEqual([len(db[k].docs) for k in ("agents", "forms", "experiments")], [1, 1, 3])
+        self.assertEqual([len(db[k].docs) for k in ("agents", "forms", "experiments")], [1, 3, 3])
 
     def test_running_it_again_changes_nothing(self):
         db = fake_db()
@@ -98,7 +107,7 @@ class StudySetup(unittest.TestCase):
     def test_the_same_four_questions_after_every_conversation(self):
         db = fake_db()
         result = ss.setup(db, apply=True, now=NOW)
-        form = db["forms"].docs[0]
+        form = db["forms"].find_one({"name": ss.FORM_NAME})
         self.assertEqual([q["props"]["fieldKey"] for q in form["questions"]], ["open", "enjoyed", "in_control", "start_liked"])
         self.assertEqual({e["experimentForms"]["postConversation"] for e in db["experiments"].docs}, {result["form"]})
 
@@ -108,6 +117,78 @@ class StudySetup(unittest.TestCase):
         ss.setup(db, apply=True, now=NOW)
         self.assertEqual(db["agents"].docs[0]["systemStarterPrompt"], "someone edited this")
         self.assertEqual(len(db["agents"].docs), 1)
+
+
+class Questionnaires(unittest.TestCase):
+    def setUp(self):
+        from tools import study_questionnaires as sq
+        self.sq = sq
+        self.baseline, self.end = sq.baseline_form(), sq.end_form()
+
+    def keys(self, form):
+        return [q["props"]["fieldKey"] for q in form["questions"]]
+
+    def test_the_baseline_shows_the_consent_page_first(self):
+        self.assertTrue(self.baseline["termsOfConditions"])
+        self.assertNotIn("termsOfConditions", self.end)
+
+    def test_sizes(self):
+        self.assertEqual(len(self.baseline["questions"]), 12 + 11 + 8 + 3)
+        self.assertEqual(len(self.end["questions"]), 10 + 2 + 7 + 3 + 4 + 4 + 12 + 8 + 3)
+
+    def test_every_question_has_a_unique_key_the_server_will_store(self):
+        for form in (self.baseline, self.end):
+            keys = self.keys(form)
+            self.assertEqual(len(keys), len(set(keys)))
+            for key in keys:
+                self.assertRegex(key, r"^[A-Za-z0-9_-]{1,64}$")
+                self.assertNotIn(key, ("username", "age", "gender"))
+
+    def test_the_shared_core_is_identical_at_baseline_and_at_the_end(self):
+        def core(form):
+            return [q for q in form["questions"] if q["props"]["fieldKey"].startswith(("uls_", "privacy_"))]
+        self.assertEqual(core(self.baseline), core(self.end))
+        self.assertEqual(len(core(self.end)), 11)
+
+    def test_every_question_is_required_and_of_a_type_the_app_can_show(self):
+        for form in (self.baseline, self.end):
+            for q in form["questions"]:
+                self.assertIn(q["type"], ("scale-radio", "number-input"))
+                self.assertTrue(q["props"]["required"])
+                self.assertTrue(q["props"]["label"].strip())
+
+    def test_the_agent_is_called_lexi_everywhere(self):
+        text = " ".join(q["props"]["label"] for q in self.end["questions"])
+        self.assertNotIn("Pepper", text)
+        self.assertIn("Lexi", text)
+
+
+class FillingTheSlots(unittest.TestCase):
+    def test_new_experiments_get_both_questionnaires(self):
+        db = fake_db()
+        result = ss.setup(db, apply=True, now=NOW)
+        for e in db["experiments"].docs:
+            self.assertEqual(e["experimentForms"]["registration"], result["baseline"])
+            self.assertEqual(e["studySettings"]["endSurveyForm"], result["end"])
+
+    def test_an_empty_slot_of_an_existing_experiment_is_filled_and_a_set_one_is_kept(self):
+        db = fake_db()
+        ss.setup(db, apply=True, now=NOW)
+        first, second = db["experiments"].docs[0], db["experiments"].docs[1]
+        first["experimentForms"]["registration"] = None          # as created before the questionnaires existed
+        second["studySettings"]["endSurveyForm"] = "chosen-by-hand"
+        result = ss.setup(db, apply=True, now=NOW)
+        self.assertEqual(first["experimentForms"]["registration"], result["baseline"])
+        self.assertEqual(second["studySettings"]["endSurveyForm"], "chosen-by-hand")
+        self.assertEqual(len(result["filled"]), 1)
+
+    def test_a_dry_run_fills_nothing(self):
+        db = fake_db()
+        ss.setup(db, apply=True, now=NOW)
+        db["experiments"].docs[0]["experimentForms"]["registration"] = None
+        result = ss.setup(db, apply=False, now=NOW)
+        self.assertEqual(len(result["filled"]), 1)
+        self.assertIsNone(db["experiments"].docs[0]["experimentForms"]["registration"])
 
 
 if __name__ == "__main__":

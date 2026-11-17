@@ -127,7 +127,9 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ experimentId, setSho
             }
 
             // Register user (with or without FCM token)
-            const user = await registerUser(data, experimentId, fcmToken);
+            // The consent given on the consent page is stored with the participant's registration answers.
+            const registration = form?.termsOfConditions ? { ...data, consent_agreed: isAgreedTerms } : data;
+            const user = await registerUser(registration, experimentId, fcmToken);
 
             // Get the real user ID
             const userId = String((user as any)._id);

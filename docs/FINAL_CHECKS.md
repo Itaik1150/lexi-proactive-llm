@@ -52,8 +52,9 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 |---|---|---|---|---|
 | E1 | The three experiments are identical except their condition (persona, model settings, first sentence, timing, forms) | *17 Nov: created by `tools/setup_study.py` from one template and read back: they differ only in id, title, description and behaviour weights; the agent has the agreed persona and temperature 0.7.* **Repeat right before launch**, after the forms and codes were entered by hand | Claude | 🟡 |
 | E2 | Old demo and test data is reset before the rehearsal and before the study | counts of conversations, notes and events for test accounts are zero | owner approves, Claude runs | ⬜ |
-| E3 | The consent text is the BGU one approved by ethics (not the old Cambridge text) | open the consent page in the app | owner | ⬜ |
-| E4 | The questionnaires open at the right moments and are recorded as completed | (after P2 is built) | owner + Claude | ⬜ |
+| E3 | The consent page appears at registration and its text is the one approved by the BGU ethics committee (today: a draft written for testing) | register a fresh account on the phone: user name/age/gender → consent → baseline questions; `users.registrationAnswers.consent_agreed` is true | owner + Claude | ⬜ |
+| E4 | The questionnaires open at the right moments, can be completed comfortably on a phone, and are stored | baseline (34 questions) at registration, 4 questions after Finish, the end questionnaire (53) on day 14; time each one | owner + Claude | ⬜ |
+| E5 | The wording of the scales that were not taken from Laban's materials equals the original publications (Hong reactance, privacy concern, Perceived Surveillance, threat to freedom, User Engagement Scale short form) | compare `logic-python/tools/study_questionnaires.py` with the papers | owner | ⬜ |
 
 ## G. Dashboard and access (I6, P7, P9)
 

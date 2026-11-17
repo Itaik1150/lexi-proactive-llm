@@ -5,8 +5,9 @@ Create the study's agent, its after-conversation questionnaire and its three exp
     python tools/setup_study.py            # shows what would be created, changes nothing
     python tools/setup_study.py --apply    # creates what is missing
 
-It only ADDS documents and never changes or deletes an existing one: something that already exists
-under the same name is left exactly as it is and reported. The three experiments are built from one
+It only ADDS documents: something that already exists under the same name is left exactly as it is
+and reported. The one exception is filling an EMPTY form slot of the three study experiments (the
+baseline and the end-of-study questionnaire); a slot that already holds a form is never overwritten. The three experiments are built from one
 template, so they are identical except for the condition (title, description, behaviour weights).
 
 Participants see an experiment's title when they join, so the titles are neutral; the condition is
@@ -29,6 +30,7 @@ for _stream in (sys.stdout, sys.stderr):
 from bson import ObjectId
 
 from services.schedule_utils import STUDY_WINDOW
+from tools import study_questionnaires as sq
 
 AGENT_TITLE = "Lexi (study persona)"
 FORM_NAME = "Study: after every conversation"
@@ -108,7 +110,8 @@ def form_document() -> dict:
     }
 
 
-def experiment_document(title: str, description: str, weights: dict, agent_id: str, form_id: str, now: datetime) -> dict:
+def experiment_document(title: str, description: str, weights: dict, agent_id: str, form_id: str, now: datetime,
+                        baseline_id: str | None = None, end_id: str | None = None) -> dict:
     """One experiment. Everything except title, description and weights is the same for all three."""
     return {
         "agentsMode": "Single",
@@ -122,8 +125,8 @@ def experiment_document(title: str, description: str, weights: dict, agent_id: s
         "isActive": True,
         "title": title,
         "description": description,
-        "experimentForms": {"registration": None, "preConversation": None, "postConversation": form_id},
-        "studySettings": {"durationDays": 14, "endSurveyForm": None, "onboardingCompletionCode": "", "finalCompletionCode": ""},
+        "experimentForms": {"registration": baseline_id, "preConversation": None, "postConversation": form_id},
+        "studySettings": {"durationDays": 14, "endSurveyForm": end_id, "onboardingCompletionCode": "", "finalCompletionCode": ""},
         "maxMessages": None,
         "maxConversations": None,
         "maxParticipants": None,
@@ -186,17 +189,42 @@ def setup(db, apply: bool, now: datetime | None = None) -> dict:
         if apply:
             db["forms"].insert_one(form)
 
+    forms = {}
+    for name, build in ((sq.BASELINE_NAME, sq.baseline_form), (sq.END_NAME, sq.end_form)):
+        doc = db["forms"].find_one({"name": name})
+        if doc is None:
+            doc = {"_id": ObjectId(), **build()}
+            created.append(f"form '{name}' ({len(doc['questions'])} questions)")
+            if apply:
+                db["forms"].insert_one(doc)
+        forms[name] = str(doc["_id"])
+    baseline_id, end_id = forms[sq.BASELINE_NAME], forms[sq.END_NAME]
+
     experiments = {}
+    filled = []
     for title, description, weights in CONDITIONS:
         existing = db["experiments"].find_one({"title": title})
         if existing is None:
             existing = {"_id": ObjectId(),
-                        **experiment_document(title, description, weights, str(agent["_id"]), str(form["_id"]), now)}
+                        **experiment_document(title, description, weights, str(agent["_id"]), str(form["_id"]), now,
+                                              baseline_id, end_id)}
             created.append(f"experiment '{title}'")
             if apply:
                 db["experiments"].insert_one(existing)
+        else:
+            # fill the two questionnaire slots, only where nothing is set yet
+            empty = {}
+            if not (existing.get("experimentForms") or {}).get("registration"):
+                empty["experimentForms.registration"] = baseline_id
+            if not (existing.get("studySettings") or {}).get("endSurveyForm"):
+                empty["studySettings.endSurveyForm"] = end_id
+            if empty:
+                filled.append(f"experiment '{title}': " + ", ".join(sorted(empty)))
+                if apply:
+                    db["experiments"].update_one({"_id": existing["_id"]}, {"$set": empty})
         experiments[title] = str(existing["_id"])
-    return {"agent": str(agent["_id"]), "form": str(form["_id"]), "experiments": experiments, "created": created}
+    return {"agent": str(agent["_id"]), "form": str(form["_id"]), "baseline": baseline_id, "end": end_id,
+            "experiments": experiments, "created": created, "filled": filled}
 
 
 def main() -> None:
@@ -208,9 +236,11 @@ def main() -> None:
     db = MongoClient(os.environ["MONGODB_URL"])[os.environ["MONGODB_DB_NAME"]]
     result = setup(db, apply)
     print("APPLIED" if apply else "DRY RUN (nothing changed; add --apply to create)")
-    print("would create / created:" if result["created"] else "nothing to create: everything already exists")
+    print("would create / created:" if result["created"] or result["filled"] else "nothing to do: everything already exists")
     for item in result["created"]:
         print("  +", item)
+    for item in result["filled"]:
+        print("  ~ filled empty questionnaire slot,", item)
     print("agent:", result["agent"], "| form:", result["form"])
     for title, exp_id in result["experiments"].items():
         print(f"  {title}: {exp_id}")

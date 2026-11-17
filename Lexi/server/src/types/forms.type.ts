@@ -56,5 +56,7 @@ export interface IForm {
     name: string;
     title: string;
     instructions: string;
+    /** On a registration form: show the consent page before the form. */
+    termsOfConditions?: boolean;
     questions: Array<{ type: QuestionType; props: QuestionTypeProps }>;
 }
