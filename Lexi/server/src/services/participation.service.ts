@@ -6,8 +6,13 @@ import { studyDay } from './study.service';
  * researcher's dashboard. Used to decide who has completed the study on Prolific.
  *
  * A conversation counts as "real" when the participant wrote at least one message in it (the
- * conversation a notification opens exists before the participant replies).
+ * conversation a notification opens exists before the participant replies). A SESSION, the unit of the
+ * study's participation requirement (protocol: at least 3 sessions in each week), is a conversation in
+ * which the participant wrote at least MIN_SESSION_MESSAGES messages.
  */
+
+export const MIN_SESSION_MESSAGES = 3;
+export const REQUIRED_SESSIONS_PER_WEEK = 3;
 
 export interface ParticipationRow {
     username: string;
@@ -18,6 +23,9 @@ export interface ParticipationRow {
     conversations: number; // real conversations in total
     conversationsWeek1: number; // study days 1-7
     conversationsWeek2: number; // study days 8-14
+    sessionsWeek1: number; // conversations with at least MIN_SESSION_MESSAGES participant messages, days 1-7
+    sessionsWeek2: number; // the same, days 8-14
+    requirementMet: boolean; // at least REQUIRED_SESSIONS_PER_WEEK sessions in each of the two weeks
     finished: number; // closed with the Finish button
     surveysAfterConversation: number; // post-conversation survey answered
     lastActive: Date | string | null;
@@ -40,6 +48,9 @@ export const summarise = (user: any, conversations: any[], logs: any[], now: Dat
         0,
     );
     const sent = logs.filter((l) => l.status === 'sent');
+    const sessions = real.filter((c) => Number(c.messagesNumber) >= MIN_SESSION_MESSAGES);
+    const sessionsWeek1 = sessions.filter((c) => dayOf(c) <= 7).length;
+    const sessionsWeek2 = sessions.filter((c) => dayOf(c) >= 8 && dayOf(c) <= 14).length;
     return {
         username: user.username,
         prolificId: user.prolific?.pid || null,
@@ -49,6 +60,9 @@ export const summarise = (user: any, conversations: any[], logs: any[], now: Dat
         conversations: real.length,
         conversationsWeek1: real.filter((c) => dayOf(c) <= 7).length,
         conversationsWeek2: real.filter((c) => dayOf(c) >= 8 && dayOf(c) <= 14).length,
+        sessionsWeek1,
+        sessionsWeek2,
+        requirementMet: sessionsWeek1 >= REQUIRED_SESSIONS_PER_WEEK && sessionsWeek2 >= REQUIRED_SESSIONS_PER_WEEK,
         finished: real.filter((c) => c.isFinished).length,
         surveysAfterConversation: real.filter((c) => c.postConversation && Object.keys(c.postConversation).length > 0)
             .length,

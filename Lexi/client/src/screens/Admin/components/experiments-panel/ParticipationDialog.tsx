@@ -24,8 +24,9 @@ const COLUMNS: Array<{ key: string; label: string }> = [
     { key: 'prolificId', label: 'Prolific ID' },
     { key: 'day', label: 'Day' },
     { key: 'conversations', label: 'Conversations' },
-    { key: 'conversationsWeek1', label: 'Week 1' },
-    { key: 'conversationsWeek2', label: 'Week 2' },
+    { key: 'sessionsWeek1', label: 'Sessions wk 1' },
+    { key: 'sessionsWeek2', label: 'Sessions wk 2' },
+    { key: 'requirementMet', label: '3 + 3 met' },
     { key: 'finished', label: 'Finished' },
     { key: 'surveysAfterConversation', label: 'Short surveys' },
     { key: 'notificationsSent', label: 'Notif. sent' },
@@ -103,8 +104,10 @@ export const ParticipationDialog: React.FC<ParticipationDialogProps> = ({ open, 
                     </Table>
                 )}
                 <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 2 }}>
-                    A conversation counts when the participant wrote at least one message. Week 1 is study days 1–7,
-                    week 2 is days 8–14, counted from each participant&apos;s registration.
+                    A conversation counts when the participant wrote at least one message. A session, the unit of the
+                    participation requirement, is a conversation with at least three messages from the participant;
+                    the requirement is three sessions in each week. Week 1 is study days 1–7, week 2 is days 8–14,
+                    counted from each participant&apos;s registration.
                 </Typography>
             </DialogContent>
             <DialogActions>

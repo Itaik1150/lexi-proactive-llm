@@ -30,8 +30,9 @@ is not a therapist.</p>
 <h4>What will you be asked to do?</h4>
 <ul>
 <li>Answer a questionnaire now, and another one at the end of the 14 days (a few minutes each).</li>
-<li>Talk with Lexi in writing, whenever you like and about whatever you like, at least 6 times a week. Please end
-each conversation with the Finish button and answer four short questions about it.</li>
+<li>Talk with Lexi in writing, whenever you like and about whatever you like, at least 3 times in each week (a
+conversation counts when you wrote at least three messages). Please end each conversation with the Finish button
+and answer four short questions about it.</li>
 <li>Depending on the group you were assigned to at random, Lexi may send you notifications during the day.</li>
 </ul>
 

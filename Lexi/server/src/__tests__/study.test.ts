@@ -113,6 +113,8 @@ test('participation: only conversations the participant wrote in count, split by
         [4, 2, 1, 3, 1],
     );
     assert.deepEqual([row.notificationsSent, row.notificationsTapped, row.notificationsReplied], [3, 2, 1]);
+    // a session needs at least three messages from the participant: day 1 (3 messages) counts, day 7 (1) and day 8 (2) do not
+    assert.deepEqual([row.sessionsWeek1, row.sessionsWeek2, row.requirementMet], [1, 0, false]);
     assert.deepEqual([row.day, row.baselineAnswered, row.endSurveyDone, row.prolificId], [10, true, false, 'a'.repeat(24)]);
 });
 
@@ -122,4 +124,16 @@ test('participation: a participant who never did anything gives zeros, not error
         [row.conversations, row.notificationsSent, row.lastActive, row.prolificId, row.baselineAnswered],
         [0, 0, null, null, false],
     );
+});
+
+test('participation: the requirement is three sessions in each week', () => {
+    const conv = (day: number, messages: number) => ({ createdAt: onDay(day), messagesNumber: messages });
+    const user = { username: 'dana', createdAt: REGISTERED };
+    const enough = [1, 3, 5, 8, 10, 12].map((d) => conv(d, 3));
+    assert.equal(summarise(user, enough, [], onDay(14)).requirementMet, true);
+    const weekTwoShort = [1, 3, 5, 6, 8, 10].map((d) => conv(d, 5));
+    const row = summarise(user, weekTwoShort, [], onDay(14));
+    assert.deepEqual([row.sessionsWeek1, row.sessionsWeek2, row.requirementMet], [4, 2, false]);
+    const tooShort = [1, 3, 5, 8, 10, 12].map((d) => conv(d, 2)); // six conversations, none with three messages
+    assert.equal(summarise(user, tooShort, [], onDay(14)).requirementMet, false);
 });
