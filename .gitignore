@@ -524,3 +524,6 @@ lexi-slides-overleaf.zip
 
 # local database clean-up script (can delete data; kept out of the repository)
 Lexi/server/clean_db.ts
+
+# release signing: the keystore location and password (never commit)
+android-app/keystore.properties
