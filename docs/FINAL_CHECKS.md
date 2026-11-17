@@ -10,10 +10,12 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
-| A1 | Render runs on the Starter plan and never sleeps | Render dashboard shows "Starter"; the scheduler heartbeat appears every 30 min in the logs for a full day | owner upgrades, Claude reads the logs | ⬜ |
-| A2 | The latest code is live | the deploy of the last commit is "live" on Render; the scheduler start-up log lists the memory job and the random planner | Claude | ⬜ |
+| A1 | Render runs on the Starter plan and never sleeps | Render dashboard shows "Starter"; the scheduler heartbeat appears every 30 min in the logs for a full day *17 Nov: upgraded by the owner at 16:22 UTC; Render reports the instance as 0.5 CPU / 512 MB (Starter), memory in use about 138 MB. During the change two instances ran side by side for about three minutes, then only the new one. On the free plan that same day the instance fell asleep and two planned notifications (12:56, 13:50) were never sent.* Still to do: heartbeats through a full day | owner upgrades, Claude reads the logs | 🟡 |
+| A2 | The latest code is live | the deploy of the last commit is "live" on Render; the scheduler start-up log lists the memory job and the random planner. *17 Nov: commit `a3789e6` deployed; the start-up log shows Europe/London, the memory pipeline every 2 min (GPT-4.1), the heartbeat, and a random planner (09:00–19:00, 2 per user) for the demo experiment and the three study experiments* | Claude | ✅ |
 | A3 | The join page delivers the current app | *17 Nov: the public download link serves the new build (same checksum as the file built here), version 1.5 (6).* Still to do: install it from the join page on a phone and see "1.5" in the phone's app info | owner + Claude | 🟡 |
 | A4 | Before Prolific: the download is a **signed release** build, not a debug build | Claude checks the file: not debuggable, signed with the study's key | owner (key) + Claude | ⬜ |
+| A5 | The study data cannot be lost: the database has backups, or a copy is exported every day | Atlas cluster page shows the tier and a Backup tab with snapshots; or a dated export exists for each study day. *17 Nov: the database answers like a shared-tier cluster (Free or Flex; Atlas access for Claude is switched off, so the owner has to read the tier on the cluster page). The Free tier has no backups. Size is no concern: 1.2 MB in total, limit 512 MB.* Decision open | owner decides, Claude verifies | ⬜ |
+| A6 | Nothing is deployed while participants are in the study | Render deploys automatically on every push to `main`, and each deploy restarts the scheduler and re-draws the rest of that day's times. During data collection: no pushes to `main` (or auto-deploy switched off in Render) | owner + Claude | ⬜ |
 
 ## B. Timing (D20: random times, same rule for both proactive groups)
 
