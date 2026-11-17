@@ -1,4 +1,4 @@
-import { Grid } from '@mui/material';
+import { Grid, Typography } from '@mui/material';
 import {
     Control,
     FieldErrors,
@@ -35,6 +35,16 @@ export const FinalRegisterForm: React.FC<FinalRegisterFormProps> = ({
 }) => (
     <StyledContainer>
         <FormContainer container spacing={2}>
+            {(form?.title || form?.instructions) && (
+                <Grid item xs={12}>
+                    {form?.title && (
+                        <Typography variant="h6" gutterBottom>
+                            {form.title}
+                        </Typography>
+                    )}
+                    {form?.instructions && <Typography variant="body2">{form.instructions}</Typography>}
+                </Grid>
+            )}
             <NoteText>Fields marked with a '*' are mandatory.</NoteText>
 
             {form &&
