@@ -12,6 +12,8 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 |---|---|---|---|---|
 | A1 | Render runs on the Starter plan and never sleeps | Render dashboard shows "Starter"; the scheduler heartbeat appears every 30 min in the logs for a full day | owner upgrades, Claude reads the logs | ⬜ |
 | A2 | The latest code is live | the deploy of the last commit is "live" on Render; the scheduler start-up log lists the memory job and the random planner | Claude | ⬜ |
+| A3 | The join page delivers the current app | *17 Nov: the public download link serves the new build (same checksum as the file built here), version 1.5 (6).* Still to do: install it from the join page on a phone and see "1.5" in the phone's app info | owner + Claude | 🟡 |
+| A4 | Before Prolific: the download is a **signed release** build, not a debug build | Claude checks the file: not debuggable, signed with the study's key | owner (key) + Claude | ⬜ |
 
 ## B. Timing (D20: random times, same rule for both proactive groups)
 
