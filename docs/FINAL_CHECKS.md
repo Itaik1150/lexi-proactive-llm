@@ -42,7 +42,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
 | D1 | Affective notification about an event: one sentence, about 15 words, names the event, first name at most once | receive one on the phone; `proactive_logs` shows `message_source: event`, `memory_id`, `memory_age_days`. *17 Nov, Study 3 test account, the engine's single-participant cycle run by hand: one sentence of 10 words about the higher-scoring of two events, first name once; delivered by Firebase; logged as `sent`, `event`, with the memory id, age 0 days, 1 model attempt; that event is now `used`, the other is not.* Still to do: one that arrives at a planned time | owner + Claude | 🟡 |
-| D2 | Opening it gives a chat that knows why Lexi reached out | reply to it; Lexi continues about that event naturally | owner | ⬜ |
+| D2 | Opening it gives a chat that knows why Lexi reached out | reply to it; Lexi continues about that event naturally. *17 Nov: the tap opened the conversation that starts with the notification's sentence; Lexi answered the reply about that event and then asked about the thesis, which she knew only from the earlier conversation.* Owner to confirm it read naturally | owner | 🟡 |
 | D3 | Affective without a new event uses the recent days (`summary`), and a brand-new participant gets the warm pool (`pool`) | test account with no unused events; a fresh account | Claude | ⬜ |
 | D4 | Standard notification comes from the neutral pool, with no name | Standard test account; text is in `docs/MESSAGE_POOLS.md` | owner + Claude | ⬜ |
 | D5 | No pool message repeats before all were used, never twice in a row | after several days, `pool_state` and the sent texts in `proactive_logs` | Claude | ⬜ |
@@ -67,7 +67,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 | G2 | Without a login the admin routes are closed | **12 Nov, live server, no cookie:** experiments list, full experiment, agents, forms, engine config and both data exports answer 401; health, public info, features (two flags only) and content stay open. Still to do: a participant's login gets 403 | Claude | ✅ (403 case open) |
 | G3 | A participant can still register, log in, chat and finish (nothing a participant needs was closed) | owner on the phone with a fresh account. *17 Nov: fresh install of version 1.5, registered, chatted (3 messages), finished, answered the short survey* | owner | ✅ |
 | G4 | The proactive-settings window shows the real prompts, pools and memory rules, with a recent "published" time | owner opens it; texts equal `docs/MESSAGE_POOLS.md` and protocol Appendix A | owner + Claude | ⬜ |
-| G5 | Tapping a notification is recorded | tap one on the phone; its `proactive_logs` row has `tapped_at` within seconds of the tap | owner + Claude | ⬜ |
+| G5 | Tapping a notification is recorded | tap one on the phone; its `proactive_logs` row has `tapped_at` within seconds of the tap. *17 Nov, Study 3 test account: sent 17:28:39 UTC, tapped and opened 17:31:06, first reply 17:31:14, all on the same log row* | owner + Claude | ✅ |
 | G6 | English only | a test account stored as Hebrew still gets English notifications | Claude | ⬜ |
 
 ## H. Prolific and questionnaires (P1, P2, P5)
