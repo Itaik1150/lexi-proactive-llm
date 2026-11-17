@@ -50,7 +50,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
-| E1 | The three experiments are identical except their proactive settings (persona, model settings, first sentence) | Claude compares the three experiment and agent documents | Claude | ⬜ |
+| E1 | The three experiments are identical except their condition (persona, model settings, first sentence, timing, forms) | *17 Nov: created by `tools/setup_study.py` from one template and read back: they differ only in id, title, description and behaviour weights; the agent has the agreed persona and temperature 0.7.* **Repeat right before launch**, after the forms and codes were entered by hand | Claude | 🟡 |
 | E2 | Old demo and test data is reset before the rehearsal and before the study | counts of conversations, notes and events for test accounts are zero | owner approves, Claude runs | ⬜ |
 | E3 | The consent text is the BGU one approved by ethics (not the old Cambridge text) | open the consent page in the app | owner | ⬜ |
 | E4 | The questionnaires open at the right moments and are recorded as completed | (after P2 is built) | owner + Claude | ⬜ |
@@ -70,7 +70,7 @@ Status: ⬜ not checked yet · ✅ passed · ❌ failed (with a note).
 
 | # | Check | How | Who | Status |
 |---|---|---|---|---|
-| H1 | The study link assigns conditions at random and evenly | open `/join/study?e=...` with several test Prolific ids; `prolific_joins` shows the three experiments filling evenly | Claude | ⬜ |
+| H1 | The study link assigns conditions at random and evenly | *17 Nov: the live link `/join/study?e=...` redirects to one of the three landing pages (three calls gave three different experiments).* Still to do: with several test Prolific ids, `prolific_joins` shows the three experiments filling evenly | Claude | 🟡 |
 | H2 | The same participant always gets the same condition | open the link twice with the same test id, also from another network | Claude | ⬜ |
 | H3 | The account is linked to the Prolific id automatically | open the link on the phone with a test id, install, register; `users.prolific.pid` is that id, `linkedBy: auto` | owner + Claude | ⬜ |
 | H4 | When it cannot be linked, the app asks for the id and refuses a wrong one | register on another network (Wi-Fi off); the "Your Prolific ID" window appears; a short or already-used id is refused | owner | ⬜ |
